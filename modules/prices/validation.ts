@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import {
+  meterIdSchema,
   priceIdSchema,
   productIdSchema,
 } from "@/modules/shared/validation";
@@ -33,13 +34,30 @@ export const createPriceSchema = z.discriminatedUnion("type", [
         .object({
           interval: z.enum(["month", "year"]),
           interval_count: z.literal(1).optional(),
+          usage_type: z.enum(["licensed", "metered"]).optional(),
         })
         .transform((value) => ({
           interval: value.interval,
           interval_count: 1 as const,
+          usage_type: (value.usage_type ?? "licensed") as "licensed" | "metered",
         })),
+      meter: meterIdSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (data) => {
+        if (data.recurring.usage_type === "metered") return data.meter != null;
+        return true;
+      },
+      { message: "meter is required when usage_type is 'metered'" }
+    )
+    .refine(
+      (data) => {
+        if (data.meter != null) return data.recurring.usage_type === "metered";
+        return true;
+      },
+      { message: "usage_type must be 'metered' when meter is provided" }
+    ),
 ]);
 
 export const updatePriceSchema = z

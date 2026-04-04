@@ -27,6 +27,27 @@ export const products = pgTable("products", {
     .notNull(),
 });
 
+export const meters = pgTable("meters", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  displayName: text("display_name").notNull(),
+  eventName: text("event_name").notNull(),
+  defaultAggregation: text("default_aggregation")
+    .$type<"sum" | "count">()
+    .notNull(),
+  status: text("status")
+    .$type<"active" | "inactive">()
+    .default("active")
+    .notNull(),
+  livemode: boolean("livemode").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const prices = pgTable("prices", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull(),
@@ -44,6 +65,7 @@ export const prices = pgTable("prices", {
   unitAmount: integer("unit_amount").notNull(),
   recurringInterval: text("recurring_interval").$type<"month" | "year" | null>(),
   recurringIntervalCount: integer("recurring_interval_count").$type<1 | null>(),
+  meter: text("meter"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
