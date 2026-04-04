@@ -26,7 +26,10 @@ export const attachPaymentMethodSchema = z
   .object({
     customer: z
       .string()
-      .regex(/^cus_[A-Za-z0-9]+$/, "Customer must be a valid cus_ id"),
+      .regex(
+        /^cus_[A-Za-z0-9_-]+$/,
+        "Customer must be a valid cus_ id"
+      ),
   })
   .strict();
 
