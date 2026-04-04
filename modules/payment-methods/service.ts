@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, lt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
@@ -280,7 +280,7 @@ export async function detachPaymentMethod(
         and(
           eq(subscriptions.organizationId, organizationId),
           eq(subscriptions.defaultPaymentMethodId, paymentMethodId),
-          eq(subscriptions.status, "active")
+          inArray(subscriptions.status, ["active", "past_due"])
         )
       );
 

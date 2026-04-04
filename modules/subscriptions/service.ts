@@ -8,26 +8,19 @@ import {
   subscriptionItems,
   subscriptions,
 } from "@/infrastructure/database/schema";
+import { addRecurringInterval, toUnix } from "@/modules/shared/time";
 import type {
   CreateSubscriptionInput,
   ListSubscriptionsParams,
   StripeSubscriptionList,
   Subscription,
+  SubscriptionCollectionMethod,
   SubscriptionItem,
   UpdateSubscriptionInput,
 } from "./types";
 
 type SubscriptionRow = typeof subscriptions.$inferSelect;
 type SubscriptionItemRow = typeof subscriptionItems.$inferSelect;
-type PriceRow = typeof prices.$inferSelect;
-
-type LoadedSubscription = {
-  row: SubscriptionRow;
-  itemRows: SubscriptionItemRow[];
-  priceRowsById: Map<string, PriceRow>;
-};
-
-type DbClient = ReturnType<typeof getDb>;
 
 export class SubscriptionError extends Error {
   code:
@@ -36,6 +29,7 @@ export class SubscriptionError extends Error {
     | "payment_method_not_found"
     | "payment_method_not_attached"
     | "payment_method_customer_mismatch"
+    | "default_payment_method_required"
     | "invalid_items"
     | "invalid_price"
     | "already_canceled";
@@ -46,10 +40,6 @@ export class SubscriptionError extends Error {
   }
 }
 
-function unix(date: Date | null): number | null {
-  return date ? Math.floor(date.getTime() / 1000) : null;
-}
-
 function toSubscriptionItem(row: SubscriptionItemRow): SubscriptionItem {
   return {
     id: row.id,
@@ -58,145 +48,52 @@ function toSubscriptionItem(row: SubscriptionItemRow): SubscriptionItem {
   };
 }
 
-function toSubscription(loaded: LoadedSubscription): Subscription {
-  return {
-    id: loaded.row.id,
-    object: "subscription",
-    customer: loaded.row.customerId,
-    status: loaded.row.status,
-    default_payment_method: loaded.row.defaultPaymentMethodId,
-    items: loaded.itemRows.map(toSubscriptionItem),
-    cancel_at_period_end: loaded.row.cancelAtPeriodEnd,
-    canceled_at: unix(loaded.row.canceledAt),
-    ended_at: unix(loaded.row.endedAt),
-    current_period_start: Math.floor(
-      loaded.row.currentPeriodStart.getTime() / 1000
-    ),
-    current_period_end: Math.floor(loaded.row.currentPeriodEnd.getTime() / 1000),
-    livemode: loaded.row.livemode,
-    created: Math.floor(loaded.row.createdAt.getTime() / 1000),
-    updated: Math.floor(loaded.row.updatedAt.getTime() / 1000),
-  };
-}
-
-function addRecurringInterval(date: Date, interval: "month" | "year") {
-  const next = new Date(date);
-
-  if (interval === "month") {
-    next.setUTCMonth(next.getUTCMonth() + 1);
-    return next;
-  }
-
-  next.setUTCFullYear(next.getUTCFullYear() + 1);
-  return next;
-}
-
-async function loadSubscription(
-  db: DbClient,
+async function listSubscriptionItems(
   organizationId: string,
-  row: SubscriptionRow
-): Promise<LoadedSubscription> {
-  const itemRows = await db
+  subscriptionId: string
+): Promise<SubscriptionItemRow[]> {
+  const db = getDb();
+  return db
     .select()
     .from(subscriptionItems)
     .where(
       and(
         eq(subscriptionItems.organizationId, organizationId),
-        eq(subscriptionItems.subscriptionId, row.id)
+        eq(subscriptionItems.subscriptionId, subscriptionId)
       )
     )
     .orderBy(desc(subscriptionItems.createdAt), desc(subscriptionItems.id));
+}
 
-  const priceIds = Array.from(new Set(itemRows.map((item) => item.priceId)));
-  const priceRows =
-    priceIds.length === 0
-      ? []
-      : await db
-          .select()
-          .from(prices)
-          .where(
-            and(
-              eq(prices.organizationId, organizationId),
-              inArray(prices.id, priceIds)
-            )
-          );
-
+function toSubscriptionFromRows(
+  row: SubscriptionRow,
+  itemRows: SubscriptionItemRow[]
+): Subscription {
   return {
-    row,
-    itemRows,
-    priceRowsById: new Map(priceRows.map((price) => [price.id, price])),
+    id: row.id,
+    object: "subscription",
+    customer: row.customerId,
+    status: row.status,
+    collection_method: row.collectionMethod,
+    default_payment_method: row.defaultPaymentMethodId,
+    items: itemRows.map(toSubscriptionItem),
+    cancel_at_period_end: row.cancelAtPeriodEnd,
+    canceled_at: toUnix(row.canceledAt),
+    ended_at: toUnix(row.endedAt),
+    current_period_start: Math.floor(row.currentPeriodStart.getTime() / 1000),
+    current_period_end: Math.floor(row.currentPeriodEnd.getTime() / 1000),
+    livemode: row.livemode,
+    created: Math.floor(row.createdAt.getTime() / 1000),
+    updated: Math.floor(row.updatedAt.getTime() / 1000),
   };
 }
 
-async function normalizeLoadedSubscription(
-  db: DbClient,
-  loaded: LoadedSubscription
-): Promise<LoadedSubscription> {
-  if (loaded.row.status === "canceled" || loaded.itemRows.length === 0) {
-    return loaded;
-  }
-
-  const primaryPrice = loaded.priceRowsById.get(loaded.itemRows[0].priceId);
-  if (!primaryPrice?.recurringInterval) {
-    return loaded;
-  }
-
-  const now = new Date();
-  let nextRow = loaded.row;
-
-  if (loaded.row.cancelAtPeriodEnd) {
-    if (loaded.row.currentPeriodEnd.getTime() > now.getTime()) {
-      return loaded;
-    }
-
-    const canceledAt = loaded.row.currentPeriodEnd;
-    const [updated] = await db
-      .update(subscriptions)
-      .set({
-        status: "canceled",
-        cancelAtPeriodEnd: false,
-        canceledAt,
-        endedAt: canceledAt,
-        updatedAt: now,
-      })
-      .where(eq(subscriptions.id, loaded.row.id))
-      .returning();
-
-    nextRow = updated;
-    return { ...loaded, row: nextRow };
-  }
-
-  if (loaded.row.currentPeriodEnd.getTime() > now.getTime()) {
-    return loaded;
-  }
-
-  let currentPeriodStart = loaded.row.currentPeriodStart;
-  let currentPeriodEnd = loaded.row.currentPeriodEnd;
-
-  while (currentPeriodEnd.getTime() <= now.getTime()) {
-    currentPeriodStart = currentPeriodEnd;
-    currentPeriodEnd = addRecurringInterval(
-      currentPeriodEnd,
-      primaryPrice.recurringInterval
-    );
-  }
-
-  const [updated] = await db
-    .update(subscriptions)
-    .set({
-      currentPeriodStart,
-      currentPeriodEnd,
-      updatedAt: now,
-    })
-    .where(eq(subscriptions.id, loaded.row.id))
-    .returning();
-
-  nextRow = updated;
-
-  return {
-    ...loaded,
-    row: nextRow,
-  };
+async function toSubscription(
+  organizationId: string,
+  row: SubscriptionRow
+): Promise<Subscription> {
+  const itemRows = await listSubscriptionItems(organizationId, row.id);
+  return toSubscriptionFromRows(row, itemRows);
 }
 
 async function getSubscriptionRow(
@@ -218,25 +115,18 @@ async function getSubscriptionRow(
   return rows[0] ?? null;
 }
 
-async function normalizeCustomerSubscriptions(
-  organizationId: string,
-  customerId: string
+function requireDefaultPaymentMethod(
+  collectionMethod: SubscriptionCollectionMethod,
+  defaultPaymentMethodId?: string
 ) {
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(subscriptions)
-    .where(
-      and(
-        eq(subscriptions.organizationId, organizationId),
-        eq(subscriptions.customerId, customerId),
-        eq(subscriptions.status, "active")
-      )
+  if (
+    collectionMethod === "charge_automatically" &&
+    !defaultPaymentMethodId
+  ) {
+    throw new SubscriptionError(
+      "default_payment_method_required",
+      "A default payment method is required when collection_method is charge_automatically"
     );
-
-  for (const row of rows) {
-    const loaded = await loadSubscription(db, organizationId, row);
-    await normalizeLoadedSubscription(db, loaded);
   }
 }
 
@@ -253,6 +143,9 @@ export async function createSubscription(
       "Exactly one subscription item is required in this version"
     );
   }
+
+  const collectionMethod = input.collection_method ?? "charge_automatically";
+  requireDefaultPaymentMethod(collectionMethod, input.default_payment_method);
 
   return db.transaction(async (tx) => {
     const customerRows = await tx
@@ -273,37 +166,39 @@ export async function createSubscription(
       );
     }
 
-    const paymentMethodRows = await tx
-      .select()
-      .from(paymentMethods)
-      .where(
-        and(
-          eq(paymentMethods.organizationId, organizationId),
-          eq(paymentMethods.id, input.default_payment_method)
+    if (collectionMethod === "charge_automatically") {
+      const paymentMethodRows = await tx
+        .select()
+        .from(paymentMethods)
+        .where(
+          and(
+            eq(paymentMethods.organizationId, organizationId),
+            eq(paymentMethods.id, input.default_payment_method!)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    const paymentMethod = paymentMethodRows[0];
-    if (!paymentMethod) {
-      throw new SubscriptionError(
-        "payment_method_not_found",
-        `No such payment_method: '${input.default_payment_method}'`
-      );
-    }
+      const paymentMethod = paymentMethodRows[0];
+      if (!paymentMethod) {
+        throw new SubscriptionError(
+          "payment_method_not_found",
+          `No such payment_method: '${input.default_payment_method}'`
+        );
+      }
 
-    if (!paymentMethod.customerId || paymentMethod.detachedAt) {
-      throw new SubscriptionError(
-        "payment_method_not_attached",
-        "The default payment method must be attached to a customer"
-      );
-    }
+      if (!paymentMethod.customerId || paymentMethod.detachedAt) {
+        throw new SubscriptionError(
+          "payment_method_not_attached",
+          "The default payment method must be attached to a customer"
+        );
+      }
 
-    if (paymentMethod.customerId !== input.customer) {
-      throw new SubscriptionError(
-        "payment_method_customer_mismatch",
-        "The default payment method must belong to the same customer"
-      );
+      if (paymentMethod.customerId !== input.customer) {
+        throw new SubscriptionError(
+          "payment_method_customer_mismatch",
+          "The default payment method must belong to the same customer"
+        );
+      }
     }
 
     const priceId = input.items[0]?.price;
@@ -338,7 +233,11 @@ export async function createSubscription(
         organizationId,
         customerId: input.customer,
         status: "active",
-        defaultPaymentMethodId: input.default_payment_method,
+        collectionMethod,
+        defaultPaymentMethodId:
+          collectionMethod === "charge_automatically"
+            ? input.default_payment_method!
+            : null,
         cancelAtPeriodEnd: false,
         canceledAt: null,
         endedAt: null,
@@ -350,23 +249,16 @@ export async function createSubscription(
       })
       .returning();
 
-    const [subscriptionItemRow] = await tx
-      .insert(subscriptionItems)
-      .values({
-        id: subscriptionItemId,
-        organizationId,
-        subscriptionId,
-        priceId: price.id,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+    const [subscriptionItemRow] = await tx.insert(subscriptionItems).values({
+      id: subscriptionItemId,
+      organizationId,
+      subscriptionId,
+      priceId: price.id,
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
 
-    return toSubscription({
-      row: subscriptionRow,
-      itemRows: [subscriptionItemRow],
-      priceRowsById: new Map([[price.id, price]]),
-    });
+    return toSubscriptionFromRows(subscriptionRow, [subscriptionItemRow]);
   });
 }
 
@@ -375,15 +267,8 @@ export async function getSubscription(
   subscriptionId: string
 ): Promise<Subscription | null> {
   await ensureTables();
-  const db = getDb();
   const row = await getSubscriptionRow(organizationId, subscriptionId);
-  if (!row) {
-    return null;
-  }
-
-  const loaded = await loadSubscription(db, organizationId, row);
-  const normalized = await normalizeLoadedSubscription(db, loaded);
-  return toSubscription(normalized);
+  return row ? toSubscription(organizationId, row) : null;
 }
 
 export async function updateSubscription(
@@ -402,12 +287,7 @@ export async function updateSubscription(
     );
   }
 
-  const normalized = await normalizeLoadedSubscription(
-    db,
-    await loadSubscription(db, organizationId, row)
-  );
-
-  if (normalized.row.status === "canceled") {
+  if (row.status === "canceled") {
     throw new SubscriptionError(
       "already_canceled",
       "This subscription has already been canceled"
@@ -423,10 +303,7 @@ export async function updateSubscription(
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
 
-  return toSubscription({
-    ...normalized,
-    row: updated,
-  });
+  return toSubscription(organizationId, updated);
 }
 
 export async function cancelSubscription(
@@ -444,12 +321,7 @@ export async function cancelSubscription(
     );
   }
 
-  const normalized = await normalizeLoadedSubscription(
-    db,
-    await loadSubscription(db, organizationId, row)
-  );
-
-  if (normalized.row.status === "canceled") {
+  if (row.status === "canceled") {
     throw new SubscriptionError(
       "already_canceled",
       "This subscription has already been canceled"
@@ -469,10 +341,7 @@ export async function cancelSubscription(
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
 
-  return toSubscription({
-    ...normalized,
-    row: updated,
-  });
+  return toSubscription(organizationId, updated);
 }
 
 export async function listSubscriptions(
@@ -481,8 +350,6 @@ export async function listSubscriptions(
 ): Promise<StripeSubscriptionList> {
   await ensureTables();
   const db = getDb();
-
-  await normalizeCustomerSubscriptions(organizationId, params.customer);
 
   const limit = params.limit ?? 10;
   const conditions = [
@@ -532,16 +399,17 @@ export async function listSubscriptions(
     .select()
     .from(subscriptions)
     .where(and(...conditions))
-    .orderBy(desc(subscriptions.createdAt), desc(subscriptions.id))
+    .orderBy(
+      desc(subscriptions.createdAt),
+      desc(subscriptions.currentPeriodEnd),
+      desc(subscriptions.id)
+    )
     .limit(limit + 1);
 
   const hasMore = rows.length > limit;
-  const data: Subscription[] = [];
-
-  for (const row of rows.slice(0, limit)) {
-    const loaded = await loadSubscription(db, organizationId, row);
-    data.push(toSubscription(loaded));
-  }
+  const data = await Promise.all(
+    rows.slice(0, limit).map((row) => toSubscription(organizationId, row))
+  );
 
   return {
     object: "list",
@@ -549,4 +417,23 @@ export async function listSubscriptions(
     has_more: hasMore,
     url: "/api/subscriptions",
   };
+}
+
+export async function listNonCanceledCustomerSubscriptionIds(
+  organizationId: string,
+  customerId: string
+) {
+  await ensureTables();
+  const db = getDb();
+
+  return db
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.organizationId, organizationId),
+        eq(subscriptions.customerId, customerId),
+        inArray(subscriptions.status, ["active", "past_due"])
+      )
+    );
 }

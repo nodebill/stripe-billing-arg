@@ -20,4 +20,4 @@
 - A payment method starts unattached, may be attached to exactly one customer, and may then be detached exactly once.
 - Detached payment methods remain stored for history and cannot be re-attached.
 - Only attached payment methods can be updated.
-- Detaching a payment method immediately cancels any active subscriptions that use it as their default payment method.
+- Detaching a payment method immediately cancels any active or past-due subscriptions that use it as their default payment method.

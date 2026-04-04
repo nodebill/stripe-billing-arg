@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Repeat, WalletCards } from "lucide-react";
+import { ArrowLeft, ReceiptText, Repeat, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Customer } from "@/modules/customers/types";
+import type { Invoice } from "@/modules/invoices/types";
 import type { PaymentMethod } from "@/modules/payment-methods/types";
 import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
@@ -48,10 +49,19 @@ function formatRecurringLabel(price: Price) {
   return price.recurring.interval === "month" ? "Monthly" : "Yearly";
 }
 
+function formatCollectionMethodLabel(
+  collectionMethod: "charge_automatically" | "send_invoice"
+) {
+  return collectionMethod === "charge_automatically"
+    ? "Auto-charge"
+    : "Send invoice";
+}
+
 export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,22 +71,34 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     setError(null);
 
     try {
-      const [customerRes, paymentMethodsRes, productsRes, subscriptionsRes] =
+      const [
+        customerRes,
+        paymentMethodsRes,
+        productsRes,
+        subscriptionsRes,
+        invoicesRes,
+      ] =
         await Promise.all([
-        fetch(`/api/customers/${customerId}`),
-        fetch(
-          `/api/customers/${customerId}/payment_methods?${new URLSearchParams({
-            limit: "100",
-          })}`
-        ),
-        fetch(`/api/products?${new URLSearchParams({ limit: "100" })}`),
-        fetch(
-          `/api/subscriptions?${new URLSearchParams({
-            customer: customerId,
-            limit: "100",
-          })}`
-        ),
-      ]);
+          fetch(`/api/customers/${customerId}`),
+          fetch(
+            `/api/customers/${customerId}/payment_methods?${new URLSearchParams({
+              limit: "100",
+            })}`
+          ),
+          fetch(`/api/products?${new URLSearchParams({ limit: "100" })}`),
+          fetch(
+            `/api/subscriptions?${new URLSearchParams({
+              customer: customerId,
+              limit: "100",
+            })}`
+          ),
+          fetch(
+            `/api/invoices?${new URLSearchParams({
+              customer: customerId,
+              limit: "100",
+            })}`
+          ),
+        ]);
 
       if (!customerRes.ok) {
         const data = await customerRes.json();
@@ -98,12 +120,18 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         throw new Error(data.error?.message ?? "Failed to load subscriptions");
       }
 
+      if (!invoicesRes.ok) {
+        const data = await invoicesRes.json();
+        throw new Error(data.error?.message ?? "Failed to load invoices");
+      }
+
       const customerData: Customer = await customerRes.json();
       const paymentMethodsData: StripeList<PaymentMethod> =
         await paymentMethodsRes.json();
       const productsData: StripeList<Product> = await productsRes.json();
       const subscriptionsData: StripeList<Subscription> =
         await subscriptionsRes.json();
+      const invoicesData: StripeList<Invoice> = await invoicesRes.json();
 
       const priceLists = await Promise.all(
         productsData.data.map(async (product) => {
@@ -129,6 +157,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       setCustomer(customerData);
       setPaymentMethods(paymentMethodsData.data);
       setSubscriptions(subscriptionsData.data);
+      setInvoices(invoicesData.data);
       setProducts(productsData.data);
       setPrices(priceData);
     } catch (err) {
@@ -136,6 +165,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       setCustomer(null);
       setPaymentMethods([]);
       setSubscriptions([]);
+      setInvoices([]);
       setProducts([]);
       setPrices([]);
     } finally {
@@ -282,11 +312,6 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
             priceOptions={activeRecurringPriceOptions}
             onCreated={refresh}
           />
-          {paymentMethodOptions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Attach a payment method before creating a subscription.
-            </p>
-          ) : null}
           {activeRecurringPriceOptions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Create an active recurring price before creating a subscription.
@@ -314,6 +339,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               <TableRow className="hover:bg-transparent">
                 <TableHead>Price</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Collection</TableHead>
                 <TableHead>Payment method</TableHead>
                 <TableHead>Period end</TableHead>
                 <TableHead>ID</TableHead>
@@ -345,7 +371,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                               : "secondary"
                           }
                         >
-                          {subscription.status === "active" ? "Active" : "Canceled"}
+                          {subscription.status === "active"
+                            ? "Active"
+                            : subscription.status === "past_due"
+                              ? "Past due"
+                              : "Canceled"}
                         </Badge>
                         {subscription.cancel_at_period_end ? (
                           <Badge variant="secondary">Ends at period end</Badge>
@@ -353,7 +383,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {subscription.default_payment_method}
+                      {formatCollectionMethodLabel(subscription.collection_method)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {subscription.default_payment_method ?? "--"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(subscription.current_period_end)}
@@ -380,6 +413,98 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   </TableRow>
                 );
               })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {invoices.length === 0 ? (
+        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <ReceiptText className="size-6 text-muted-foreground" />
+          </div>
+          <div className="text-center">
+            <p className="font-medium">No invoices yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Renewal runs will create and track invoices here.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border">
+          <div className="border-b px-4 py-3">
+            <h2 className="font-medium">Invoices</h2>
+            <p className="text-sm text-muted-foreground">
+              Review renewal invoices and mocked delivery history.
+            </p>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Invoice</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Collection</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Timing</TableHead>
+                <TableHead>Delivery</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invoices.map((invoice) => (
+                <TableRow key={invoice.id}>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                        {invoice.id}
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        Subscription {invoice.subscription}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        invoice.status === "paid" || invoice.status === "open"
+                          ? "outline"
+                          : "secondary"
+                      }
+                    >
+                      {invoice.status === "past_due"
+                        ? "Past due"
+                        : invoice.status === "open"
+                          ? "Open"
+                          : invoice.status === "paid"
+                            ? "Paid"
+                            : "Draft"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatCollectionMethodLabel(invoice.collection_method)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatPriceAmount(invoice.amount_due, invoice.currency)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {invoice.paid_at
+                      ? `Paid ${formatDate(invoice.paid_at)}`
+                      : invoice.due_date
+                        ? `Due ${formatDate(invoice.due_date)}`
+                        : invoice.finalized_at
+                          ? `Finalized ${formatDate(invoice.finalized_at)}`
+                          : `Created ${formatDate(invoice.created)}`}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {invoice.latest_delivery
+                      ? `${invoice.latest_delivery.status === "sent" ? "Mock email sent" : "Pending send"}${
+                          invoice.latest_delivery.recipient
+                            ? ` to ${invoice.latest_delivery.recipient}`
+                            : ""
+                        }`
+                      : "--"}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </div>

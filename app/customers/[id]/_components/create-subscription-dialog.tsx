@@ -36,18 +36,25 @@ export function CreateSubscriptionDialog({
   onCreated: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [collectionMethod, setCollectionMethod] = useState<
+    "charge_automatically" | "send_invoice"
+  >("charge_automatically");
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [priceId, setPriceId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const requiresPaymentMethod = collectionMethod === "charge_automatically";
   const disabled =
-    paymentMethodOptions.length === 0 || priceOptions.length === 0 || loading;
+    priceOptions.length === 0 ||
+    (requiresPaymentMethod && paymentMethodOptions.length === 0) ||
+    loading;
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
 
     if (nextOpen) {
+      setCollectionMethod("charge_automatically");
       setPaymentMethodId(paymentMethodOptions[0]?.id ?? "");
       setPriceId(priceOptions[0]?.id ?? "");
       setError(null);
@@ -57,8 +64,13 @@ export function CreateSubscriptionDialog({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!paymentMethodId || !priceId) {
-      setError("Select both a payment method and a recurring price");
+    if (!priceId) {
+      setError("Select a recurring price");
+      return;
+    }
+
+    if (requiresPaymentMethod && !paymentMethodId) {
+      setError("Select a payment method for auto-charge subscriptions");
       return;
     }
 
@@ -70,7 +82,9 @@ export function CreateSubscriptionDialog({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         customer: customerId,
-        default_payment_method: paymentMethodId,
+        collection_method: collectionMethod,
+        default_payment_method:
+          collectionMethod === "charge_automatically" ? paymentMethodId : undefined,
         items: [{ price: priceId }],
       }),
     });
@@ -102,24 +116,49 @@ export function CreateSubscriptionDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="default-payment-method">Payment method</Label>
+            <Label htmlFor="collection-method">Collection method</Label>
             <select
-              id="default-payment-method"
+              id="collection-method"
               className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={paymentMethodId}
-              onChange={(e) => setPaymentMethodId(e.target.value)}
-              disabled={loading || paymentMethodOptions.length === 0}
+              value={collectionMethod}
+              onChange={(e) =>
+                setCollectionMethod(
+                  e.target.value as "charge_automatically" | "send_invoice"
+                )
+              }
+              disabled={loading}
             >
-              {paymentMethodOptions.length === 0 ? (
-                <option value="">No attached payment methods</option>
-              ) : null}
-              {paymentMethodOptions.map((paymentMethod) => (
-                <option key={paymentMethod.id} value={paymentMethod.id}>
-                  {paymentMethod.label}
-                </option>
-              ))}
+              <option value="charge_automatically">Charge automatically</option>
+              <option value="send_invoice">Send invoice</option>
             </select>
           </div>
+
+          {collectionMethod === "charge_automatically" ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="default-payment-method">Payment method</Label>
+              <select
+                id="default-payment-method"
+                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                value={paymentMethodId}
+                onChange={(e) => setPaymentMethodId(e.target.value)}
+                disabled={loading || paymentMethodOptions.length === 0}
+              >
+                {paymentMethodOptions.length === 0 ? (
+                  <option value="">No attached payment methods</option>
+                ) : null}
+                {paymentMethodOptions.map((paymentMethod) => (
+                  <option key={paymentMethod.id} value={paymentMethod.id}>
+                    {paymentMethod.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              Renewal runs will mock-send invoices without using a stored payment
+              method.
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="recurring-price">Recurring price</Label>

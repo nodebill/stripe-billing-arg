@@ -15,6 +15,13 @@
       "when": 1775268631935,
       "tag": "0001_cuddly_mockingbird",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775320528263,
+      "tag": "0002_rapid_blob",
+      "breakpoints": true
     }
   ]
 }
