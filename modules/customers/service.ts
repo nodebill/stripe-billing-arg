@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
-import { customers } from "@/infrastructure/database/schema";
+import { customers, paymentMethods } from "@/infrastructure/database/schema";
 import type { StripeList } from "@/modules/shared/types";
 import type {
   CreateCustomerInput,
@@ -105,12 +105,33 @@ export async function deleteCustomer(
   await ensureTables();
   const db = getDb();
 
-  const rows = await db
-    .delete(customers)
-    .where(
-      and(eq(customers.id, customerId), eq(customers.organizationId, organizationId))
-    )
-    .returning();
+  const rows = await db.transaction(async (tx) => {
+    const now = new Date();
+
+    await tx
+      .update(paymentMethods)
+      .set({
+        customerId: null,
+        detachedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(paymentMethods.organizationId, organizationId),
+          eq(paymentMethods.customerId, customerId)
+        )
+      );
+
+    return tx
+      .delete(customers)
+      .where(
+        and(
+          eq(customers.id, customerId),
+          eq(customers.organizationId, organizationId)
+        )
+      )
+      .returning();
+  });
 
   if (rows.length === 0) return null;
   return { id: customerId, object: "customer", deleted: true };
