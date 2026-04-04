@@ -1,4 +1,8 @@
 import { z } from "zod/v4";
+import {
+  customerIdSchema,
+  paymentMethodIdSchema,
+} from "@/modules/shared/validation";
 
 export const createPaymentMethodSchema = z
   .object({
@@ -24,17 +28,12 @@ export const updatePaymentMethodSchema = z
 
 export const attachPaymentMethodSchema = z
   .object({
-    customer: z
-      .string()
-      .regex(
-        /^cus_[A-Za-z0-9_-]+$/,
-        "Customer must be a valid cus_ id"
-      ),
+    customer: customerIdSchema,
   })
   .strict();
 
 export const listCustomerPaymentMethodsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
-  starting_after: z.string().optional(),
-  ending_before: z.string().optional(),
+  starting_after: paymentMethodIdSchema.optional(),
+  ending_before: paymentMethodIdSchema.optional(),
 });

@@ -1,7 +1,11 @@
 import { z } from "zod/v4";
+import {
+  priceIdSchema,
+  productIdSchema,
+} from "@/modules/shared/validation";
 
 const basePriceSchema = {
-  product: z.string().min(1, "Product is required"),
+  product: productIdSchema,
   currency: z
     .string()
     .regex(/^[a-z]{3}$/, "Currency must be a lowercase 3-letter code"),
@@ -47,13 +51,13 @@ export const updatePriceSchema = z
   .strict();
 
 export const listPricesSchema = z.object({
-  product: z.string().min(1, "Product is required"),
+  product: productIdSchema,
   limit: z.coerce.number().int().min(1).max(100).default(10),
   active: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .optional(),
   type: z.enum(["one_time", "recurring"]).optional(),
-  starting_after: z.string().optional(),
-  ending_before: z.string().optional(),
+  starting_after: priceIdSchema.optional(),
+  ending_before: priceIdSchema.optional(),
 });

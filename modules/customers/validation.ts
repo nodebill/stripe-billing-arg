@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { customerIdSchema } from "@/modules/shared/validation";
 
 export const createCustomerSchema = z.object({
   name: z.string().optional(),
@@ -17,6 +18,6 @@ export const updateCustomerSchema = z.object({
 export const listCustomersSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
   email: z.string().optional(),
-  starting_after: z.string().optional(),
-  ending_before: z.string().optional(),
+  starting_after: customerIdSchema.optional(),
+  ending_before: customerIdSchema.optional(),
 });
