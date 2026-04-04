@@ -1,0 +1,66 @@
+import { NextResponse } from "next/server";
+import { getSession } from "@/infrastructure/auth";
+import { apiError } from "@/lib/api-error";
+import {
+  deleteCustomer,
+  getCustomer,
+  updateCustomer,
+} from "@/modules/customers/service";
+import { updateCustomerSchema } from "@/modules/customers/validation";
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession(request);
+  const { id } = await params;
+
+  const customer = await getCustomer(session.organizationId, id);
+  if (!customer) {
+    return apiError(404, `No such customer: '${id}'`);
+  }
+
+  return NextResponse.json(customer);
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession(request);
+  const { id } = await params;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return apiError(400, "Invalid JSON body");
+  }
+
+  const parsed = updateCustomerSchema.safeParse(body);
+  if (!parsed.success) {
+    return apiError(400, parsed.error.issues[0].message);
+  }
+
+  const customer = await updateCustomer(session.organizationId, id, parsed.data);
+  if (!customer) {
+    return apiError(404, `No such customer: '${id}'`);
+  }
+
+  return NextResponse.json(customer);
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession(request);
+  const { id } = await params;
+
+  const result = await deleteCustomer(session.organizationId, id);
+  if (!result) {
+    return apiError(404, `No such customer: '${id}'`);
+  }
+
+  return NextResponse.json(result);
+}
