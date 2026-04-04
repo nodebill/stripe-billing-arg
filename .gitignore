@@ -36,6 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local database
+/local-data
+/local-data-pglite
+/.tmp-pglite-check
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
