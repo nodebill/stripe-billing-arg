@@ -17,3 +17,11 @@
 - As an operator, I can update the billing name on an attached custom payment method.
 - As an operator, I can detach a custom payment method from a customer, knowing it cannot be re-attached afterward.
 - As an operator, when I delete a customer, any attached custom payment methods are automatically detached first.
+
+## Customer subscriptions
+
+- As an operator, I can create a subscription for a customer by selecting one attached payment method and one active recurring price.
+- As an operator, I can open a customer detail page and review that customer's subscriptions.
+- As an operator, I can cancel a subscription immediately.
+- As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
+- As an operator, I cannot delete a customer while they still have active subscriptions.

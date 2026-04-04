@@ -40,6 +40,8 @@ Deletes a customer.
 
 If the customer has attached payment methods, they are detached automatically before the customer is removed.
 
+If the customer has any active subscriptions, deletion is blocked until those subscriptions are canceled.
+
 ## `GET /api/customers/:id/payment_methods`
 
 Returns a paginated Stripe-style list of payment methods currently attached to the customer.

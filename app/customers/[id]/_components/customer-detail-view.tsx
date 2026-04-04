@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, WalletCards } from "lucide-react";
+import { ArrowLeft, Repeat, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -14,10 +14,16 @@ import {
 } from "@/components/ui/table";
 import type { Customer } from "@/modules/customers/types";
 import type { PaymentMethod } from "@/modules/payment-methods/types";
+import type { Price } from "@/modules/prices/types";
+import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
+import type { Subscription } from "@/modules/subscriptions/types";
+import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { CreatePaymentMethodDialog } from "./create-payment-method-dialog";
+import { CreateSubscriptionDialog } from "./create-subscription-dialog";
 import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
 import { EditPaymentMethodDialog } from "./edit-payment-method-dialog";
+import { ScheduleSubscriptionDialog } from "./schedule-subscription-dialog";
 
 function formatDate(unix: number) {
   return new Date(unix * 1000).toLocaleDateString("en-US", {
@@ -27,9 +33,27 @@ function formatDate(unix: number) {
   });
 }
 
+function formatPriceAmount(unitAmount: number, currency: string) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(unitAmount / 100);
+}
+
+function formatRecurringLabel(price: Price) {
+  if (!price.recurring) {
+    return "One-time";
+  }
+
+  return price.recurring.interval === "month" ? "Monthly" : "Yearly";
+}
+
 export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +61,18 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     setError(null);
 
     try {
-      const [customerRes, paymentMethodsRes] = await Promise.all([
+      const [customerRes, paymentMethodsRes, productsRes, subscriptionsRes] =
+        await Promise.all([
         fetch(`/api/customers/${customerId}`),
         fetch(
           `/api/customers/${customerId}/payment_methods?${new URLSearchParams({
+            limit: "100",
+          })}`
+        ),
+        fetch(`/api/products?${new URLSearchParams({ limit: "100" })}`),
+        fetch(
+          `/api/subscriptions?${new URLSearchParams({
+            customer: customerId,
             limit: "100",
           })}`
         ),
@@ -56,16 +88,56 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         throw new Error(data.error?.message ?? "Failed to load payment methods");
       }
 
+      if (!productsRes.ok) {
+        const data = await productsRes.json();
+        throw new Error(data.error?.message ?? "Failed to load products");
+      }
+
+      if (!subscriptionsRes.ok) {
+        const data = await subscriptionsRes.json();
+        throw new Error(data.error?.message ?? "Failed to load subscriptions");
+      }
+
       const customerData: Customer = await customerRes.json();
       const paymentMethodsData: StripeList<PaymentMethod> =
         await paymentMethodsRes.json();
+      const productsData: StripeList<Product> = await productsRes.json();
+      const subscriptionsData: StripeList<Subscription> =
+        await subscriptionsRes.json();
+
+      const priceLists = await Promise.all(
+        productsData.data.map(async (product) => {
+          const res = await fetch(
+            `/api/prices?${new URLSearchParams({
+              product: product.id,
+              type: "recurring",
+              limit: "100",
+            })}`
+          );
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error?.message ?? "Failed to load prices");
+          }
+
+          return data as StripeList<Price>;
+        })
+      );
+
+      const priceData = priceLists.flatMap((list) => list.data);
 
       setCustomer(customerData);
       setPaymentMethods(paymentMethodsData.data);
+      setSubscriptions(subscriptionsData.data);
+      setProducts(productsData.data);
+      setPrices(priceData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load customer");
       setCustomer(null);
       setPaymentMethods([]);
+      setSubscriptions([]);
+      setProducts([]);
+      setPrices([]);
     } finally {
       setLoading(false);
     }
@@ -110,6 +182,28 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       </div>
     );
   }
+
+  const productNameById = new Map(products.map((product) => [product.id, product.name]));
+  const priceById = new Map(prices.map((price) => [price.id, price]));
+  const activeRecurringPriceOptions = prices
+    .filter((price) => price.active && price.recurring)
+    .map((price) => {
+      const productName = productNameById.get(price.product) ?? price.product;
+      const label = `${productName} • ${
+        price.nickname || formatPriceAmount(price.unit_amount, price.currency)
+      } • ${formatRecurringLabel(price)}`;
+
+      return {
+        id: price.id,
+        label,
+      };
+    });
+  const paymentMethodOptions = paymentMethods.map((paymentMethod) => ({
+    id: paymentMethod.id,
+    label: paymentMethod.billing_details.name
+      ? `${paymentMethod.billing_details.name} • ${paymentMethod.id}`
+      : paymentMethod.id,
+  }));
 
   return (
     <div className="flex flex-col gap-8">
@@ -170,6 +264,126 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
           {error}
         </div>
       ) : null}
+
+      {subscriptions.length === 0 ? (
+        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <Repeat className="size-6 text-muted-foreground" />
+          </div>
+          <div className="text-center">
+            <p className="font-medium">No subscriptions yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create the first recurring subscription for this customer.
+            </p>
+          </div>
+          <CreateSubscriptionDialog
+            customerId={customer.id}
+            paymentMethodOptions={paymentMethodOptions}
+            priceOptions={activeRecurringPriceOptions}
+            onCreated={refresh}
+          />
+          {paymentMethodOptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Attach a payment method before creating a subscription.
+            </p>
+          ) : null}
+          {activeRecurringPriceOptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Create an active recurring price before creating a subscription.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-xl border">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <div>
+              <h2 className="font-medium">Subscriptions</h2>
+              <p className="text-sm text-muted-foreground">
+                Manage recurring billing for this customer.
+              </p>
+            </div>
+            <CreateSubscriptionDialog
+              customerId={customer.id}
+              paymentMethodOptions={paymentMethodOptions}
+              priceOptions={activeRecurringPriceOptions}
+              onCreated={refresh}
+            />
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Price</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Payment method</TableHead>
+                <TableHead>Period end</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead className="w-[112px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {subscriptions.map((subscription) => {
+                const price = priceById.get(subscription.items[0]?.price);
+                const productName = price
+                  ? productNameById.get(price.product) ?? price.product
+                  : "Unknown product";
+                const priceLabel = price
+                  ? `${productName} • ${
+                      price.nickname ||
+                      formatPriceAmount(price.unit_amount, price.currency)
+                    } • ${formatRecurringLabel(price)}`
+                  : subscription.items[0]?.price ?? "Unknown price";
+
+                return (
+                  <TableRow key={subscription.id}>
+                    <TableCell className="font-medium">{priceLabel}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant={
+                            subscription.status === "active"
+                              ? "outline"
+                              : "secondary"
+                          }
+                        >
+                          {subscription.status === "active" ? "Active" : "Canceled"}
+                        </Badge>
+                        {subscription.cancel_at_period_end ? (
+                          <Badge variant="secondary">Ends at period end</Badge>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {subscription.default_payment_method}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(subscription.current_period_end)}
+                    </TableCell>
+                    <TableCell>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                        {subscription.id}
+                      </code>
+                    </TableCell>
+                    <TableCell>
+                      {subscription.status === "active" ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <ScheduleSubscriptionDialog
+                            subscription={subscription}
+                            onUpdated={refresh}
+                          />
+                          <CancelSubscriptionDialog
+                            subscription={subscription}
+                            onCanceled={refresh}
+                          />
+                        </div>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {paymentMethods.length === 0 ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
@@ -233,7 +447,9 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       )}
 
       <div className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
-        Detached payment methods stay in history and cannot be re-attached.
+        Detached payment methods stay in history and cannot be re-attached. If a
+        detached payment method is the default for an active subscription, that
+        subscription is canceled immediately.
       </div>
     </div>
   );

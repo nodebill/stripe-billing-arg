@@ -58,6 +58,13 @@ export async function DELETE(
   const { id } = await params;
 
   const result = await deleteCustomer(session.organizationId, id);
+  if (result === "has_subscriptions") {
+    return apiError(
+      400,
+      "This customer has active subscriptions and cannot be deleted."
+    );
+  }
+
   if (!result) {
     return apiError(404, `No such customer: '${id}'`);
   }

@@ -14,3 +14,4 @@ export const customerIdSchema = stripeIdSchema("cus", "Customer");
 export const productIdSchema = stripeIdSchema("prod", "Product");
 export const priceIdSchema = stripeIdSchema("price", "Price");
 export const paymentMethodIdSchema = stripeIdSchema("pm", "Payment method");
+export const subscriptionIdSchema = stripeIdSchema("sub", "Subscription");
