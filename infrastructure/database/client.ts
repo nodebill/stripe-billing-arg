@@ -161,6 +161,20 @@ const bootstrapStatements = [
       updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
     )
   `,
+  `
+    CREATE TABLE IF NOT EXISTS payment_methods (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      customer_id TEXT,
+      type TEXT NOT NULL,
+      custom_type TEXT NOT NULL,
+      billing_name TEXT,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      detached_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
 ] as const;
 
 declare global {

@@ -70,3 +70,20 @@ export const customers = pgTable("customers", {
     .defaultNow()
     .notNull(),
 });
+
+export const paymentMethods = pgTable("payment_methods", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  customerId: text("customer_id"),
+  type: text("type").$type<"custom">().notNull(),
+  customType: text("custom_type").notNull(),
+  billingName: text("billing_name"),
+  livemode: boolean("livemode").default(false).notNull(),
+  detachedAt: timestamp("detached_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});

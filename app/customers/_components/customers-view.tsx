@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -153,10 +154,15 @@ export function CustomersView() {
               {filtered.map((customer) => (
                 <TableRow key={customer.id}>
                   <TableCell className="font-medium">
-                    {customer.name || "\u2014"}
+                    <Link
+                      href={`/customers/${customer.id}`}
+                      className="hover:underline"
+                    >
+                      {customer.name || customer.email || customer.id}
+                    </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {customer.email || "\u2014"}
+                    {customer.email || "--"}
                   </TableCell>
                   <TableCell>
                     <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
