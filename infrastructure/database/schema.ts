@@ -51,3 +51,22 @@ export const prices = pgTable("prices", {
     .defaultNow()
     .notNull(),
 });
+
+export const customers = pgTable("customers", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  name: text("name"),
+  email: text("email"),
+  description: text("description"),
+  metadata: jsonb("metadata")
+    .$type<Record<string, string>>()
+    .default({})
+    .notNull(),
+  livemode: boolean("livemode").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});

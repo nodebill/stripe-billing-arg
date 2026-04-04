@@ -148,6 +148,19 @@ const bootstrapStatements = [
   `
     ALTER TABLE products DROP COLUMN IF EXISTS updated
   `,
+  `
+    CREATE TABLE IF NOT EXISTS customers (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      name TEXT,
+      email TEXT,
+      description TEXT,
+      metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
 ] as const;
 
 declare global {
