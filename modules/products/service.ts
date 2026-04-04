@@ -1,13 +1,13 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, ensureTables } from "@/infrastructure/database/client";
-import { products } from "@/infrastructure/database/schema";
+import { ensureTables, getDb } from "@/infrastructure/database/client";
+import { prices, products } from "@/infrastructure/database/schema";
+import type { StripeList } from "@/modules/shared/types";
 import type {
   CreateProductInput,
   DeletedProduct,
   ListProductsParams,
   Product,
-  StripeList,
   UpdateProductInput,
 } from "./types";
 
@@ -17,6 +17,7 @@ function toProduct(row: typeof products.$inferSelect): Product {
     object: "product",
     name: row.name,
     active: row.active,
+    default_price: row.defaultPriceId,
     description: row.description,
     metadata: row.metadata,
     livemode: row.livemode,
@@ -30,6 +31,7 @@ export async function createProduct(
   input: CreateProductInput
 ): Promise<Product> {
   await ensureTables();
+  const db = getDb();
 
   const now = Math.floor(Date.now() / 1000);
   const id = `prod_${nanoid()}`;
@@ -41,6 +43,7 @@ export async function createProduct(
       organizationId,
       name: input.name,
       active: input.active ?? true,
+      defaultPriceId: null,
       description: input.description ?? null,
       metadata: input.metadata ?? {},
       livemode: false,
@@ -58,20 +61,66 @@ export async function updateProduct(
   input: UpdateProductInput
 ): Promise<Product | null> {
   await ensureTables();
+  const db = getDb();
 
   const values: Record<string, unknown> = { updatedAt: new Date() };
   if (input.name !== undefined) values.name = input.name;
   if (input.description !== undefined) values.description = input.description;
   if (input.active !== undefined) values.active = input.active;
   if (input.metadata !== undefined) values.metadata = input.metadata;
+  if (input.active === false) values.defaultPriceId = null;
+  if (input.default_price !== undefined) {
+    if (input.default_price === null) {
+      values.defaultPriceId = null;
+    } else {
+      const priceRows = await db
+        .select({
+          id: prices.id,
+        })
+        .from(prices)
+        .where(
+          and(
+            eq(prices.id, input.default_price),
+            eq(prices.organizationId, organizationId),
+            eq(prices.productId, productId),
+            eq(prices.active, true)
+          )
+        )
+        .limit(1);
 
-  const rows = await db
-    .update(products)
-    .set(values)
-    .where(
-      and(eq(products.id, productId), eq(products.organizationId, organizationId))
-    )
-    .returning();
+      if (priceRows.length === 0) {
+        throw new Error("Default price must be an active price for this product");
+      }
+
+      values.defaultPriceId = input.default_price;
+    }
+  }
+
+  const rows = await db.transaction(async (tx) => {
+    const result = await tx
+      .update(products)
+      .set(values)
+      .where(
+        and(eq(products.id, productId), eq(products.organizationId, organizationId))
+      )
+      .returning();
+
+    if (result.length === 0) return result;
+
+    if (input.active === false) {
+      await tx
+        .update(prices)
+        .set({ active: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(prices.organizationId, organizationId),
+            eq(prices.productId, productId)
+          )
+        );
+    }
+
+    return result;
+  });
 
   if (rows.length === 0) return null;
   return toProduct(rows[0]);
@@ -80,8 +129,21 @@ export async function updateProduct(
 export async function deleteProduct(
   organizationId: string,
   productId: string
-): Promise<DeletedProduct | null> {
+): Promise<DeletedProduct | "has_prices" | null> {
   await ensureTables();
+  const db = getDb();
+
+  const priceRows = await db
+    .select({ id: prices.id })
+    .from(prices)
+    .where(
+      and(eq(prices.organizationId, organizationId), eq(prices.productId, productId))
+    )
+    .limit(1);
+
+  if (priceRows.length > 0) {
+    return "has_prices";
+  }
 
   const rows = await db
     .delete(products)
@@ -94,11 +156,31 @@ export async function deleteProduct(
   return { id: productId, object: "product", deleted: true };
 }
 
+export async function getProduct(
+  organizationId: string,
+  productId: string
+): Promise<Product | null> {
+  await ensureTables();
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(products)
+    .where(
+      and(eq(products.id, productId), eq(products.organizationId, organizationId))
+    )
+    .limit(1);
+
+  if (rows.length === 0) return null;
+  return toProduct(rows[0]);
+}
+
 export async function listProducts(
   organizationId: string,
   params: ListProductsParams
 ): Promise<StripeList<Product>> {
   await ensureTables();
+  const db = getDb();
 
   const limit = params.limit ?? 10;
   const conditions = [eq(products.organizationId, organizationId)];

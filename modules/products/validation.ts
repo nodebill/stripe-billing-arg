@@ -11,6 +11,7 @@ export const updateProductSchema = z.object({
   name: z.string().min(1, "Name cannot be empty").optional(),
   description: z.string().nullable().optional(),
   active: z.boolean().optional(),
+  default_price: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.string()).optional(),
 });
 

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
-import { createProduct, listProducts } from "@/modules/products/service";
+import { createPrice, listPrices } from "@/modules/prices/service";
 import {
-  createProductSchema,
-  listProductsSchema,
-} from "@/modules/products/validation";
+  createPriceSchema,
+  listPricesSchema,
+} from "@/modules/prices/validation";
 
 export async function POST(request: Request) {
   const session = await getSession(request);
@@ -17,26 +17,29 @@ export async function POST(request: Request) {
     return apiError(400, "Invalid JSON body");
   }
 
-  const parsed = createProductSchema.safeParse(body);
+  const parsed = createPriceSchema.safeParse(body);
   if (!parsed.success) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const product = await createProduct(session.organizationId, parsed.data);
-  return NextResponse.json(product, { status: 201 });
+  const price = await createPrice(session.organizationId, parsed.data);
+  if (!price) {
+    return apiError(404, `No such product: '${parsed.data.product}'`);
+  }
+
+  return NextResponse.json(price, { status: 201 });
 }
 
 export async function GET(request: Request) {
   const session = await getSession(request);
-
   const { searchParams } = new URL(request.url);
   const raw = Object.fromEntries(searchParams.entries());
 
-  const parsed = listProductsSchema.safeParse(raw);
+  const parsed = listPricesSchema.safeParse(raw);
   if (!parsed.success) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const list = await listProducts(session.organizationId, parsed.data);
+  const list = await listPrices(session.organizationId, parsed.data);
   return NextResponse.json(list);
 }

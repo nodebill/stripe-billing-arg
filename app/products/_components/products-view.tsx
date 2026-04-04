@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Package, Plus, Search } from "lucide-react";
+import { Package, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,7 +154,14 @@ export function ProductsView() {
             <TableBody>
               {filtered.map((product) => (
                 <TableRow key={product.id}>
-                  <TableCell className="font-medium">{product.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link
+                      href={`/products/${product.id}`}
+                      className="hover:underline"
+                    >
+                      {product.name}
+                    </Link>
+                  </TableCell>
                   <TableCell>
                     <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                       {product.id}

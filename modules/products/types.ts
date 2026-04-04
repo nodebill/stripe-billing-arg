@@ -3,6 +3,7 @@ export type Product = {
   object: "product";
   name: string;
   active: boolean;
+  default_price: string | null;
   description: string | null;
   metadata: Record<string, string>;
   livemode: boolean;
@@ -21,6 +22,7 @@ export type UpdateProductInput = {
   name?: string;
   description?: string | null;
   active?: boolean;
+  default_price?: string | null;
   metadata?: Record<string, string>;
 };
 
@@ -37,9 +39,4 @@ export type ListProductsParams = {
   ending_before?: string;
 };
 
-export type StripeList<T> = {
-  object: "list";
-  data: T[];
-  has_more: boolean;
-  url: string;
-};
+export type { StripeList } from "@/modules/shared/types";
