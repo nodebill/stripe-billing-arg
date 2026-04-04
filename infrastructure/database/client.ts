@@ -11,6 +11,7 @@ const bootstrapStatements = [
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
       active BOOLEAN DEFAULT true NOT NULL,
+      default_price_id TEXT,
       description TEXT,
       metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
       livemode BOOLEAN DEFAULT false NOT NULL,
@@ -25,6 +26,58 @@ const bootstrapStatements = [
   `
     ALTER TABLE products
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+  `,
+  `
+    ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS default_price_id TEXT
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS prices (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      active BOOLEAN DEFAULT true NOT NULL,
+      billing_scheme TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      nickname TEXT,
+      metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      type TEXT NOT NULL,
+      unit_amount INTEGER NOT NULL,
+      recurring_interval TEXT,
+      recurring_interval_count INTEGER,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    UPDATE prices
+    SET metadata = '{}'::jsonb
+    WHERE metadata IS NULL
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN metadata SET DEFAULT '{}'::jsonb
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN metadata SET NOT NULL
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN created_at SET DEFAULT now()
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN created_at SET NOT NULL
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN updated_at SET DEFAULT now()
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN updated_at SET NOT NULL
   `,
   `
     UPDATE products
@@ -99,6 +152,7 @@ const bootstrapStatements = [
 
 declare global {
   var __stripeBillingPool: Pool | undefined;
+  var __stripeBillingPGlite: PGlite | undefined;
 }
 
 function isLocalPostgres(databaseUrl: string) {
@@ -121,7 +175,15 @@ function getProductionPool(databaseUrl: string) {
   return globalThis.__stripeBillingPool;
 }
 
-function createDb() {
+function getLocalClient() {
+  if (!globalThis.__stripeBillingPGlite) {
+    globalThis.__stripeBillingPGlite = new PGlite("./local-data-pglite");
+  }
+
+  return globalThis.__stripeBillingPGlite;
+}
+
+export function getDb() {
   const databaseUrl = process.env.DATABASE_URL;
 
   if (databaseUrl) {
@@ -130,14 +192,14 @@ function createDb() {
   }
 
   // Local development: use PGlite (Postgres in WASM)
-  const client = new PGlite("./local-data-pglite");
+  const client = getLocalClient();
   return drizzlePglite({ client, schema });
 }
 
-export const db = createDb();
-
 let migrationPromise: Promise<void> | null = null;
 export async function ensureTables() {
+  const db = getDb();
+
   if (!migrationPromise) {
     migrationPromise = (async () => {
       for (const statement of bootstrapStatements) {

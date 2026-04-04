@@ -1,5 +1,6 @@
 import {
   boolean,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -11,12 +12,38 @@ export const products = pgTable("products", {
   organizationId: text("organization_id").notNull(),
   name: text("name").notNull(),
   active: boolean("active").default(true).notNull(),
+  defaultPriceId: text("default_price_id"),
   description: text("description"),
   metadata: jsonb("metadata")
     .$type<Record<string, string>>()
     .default({})
     .notNull(),
   livemode: boolean("livemode").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const prices = pgTable("prices", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  productId: text("product_id").notNull(),
+  active: boolean("active").default(true).notNull(),
+  billingScheme: text("billing_scheme").notNull(),
+  currency: text("currency").notNull(),
+  nickname: text("nickname"),
+  metadata: jsonb("metadata")
+    .$type<Record<string, string>>()
+    .default({})
+    .notNull(),
+  livemode: boolean("livemode").default(false).notNull(),
+  type: text("type").$type<"one_time" | "recurring">().notNull(),
+  unitAmount: integer("unit_amount").notNull(),
+  recurringInterval: text("recurring_interval").$type<"month" | "year" | null>(),
+  recurringIntervalCount: integer("recurring_interval_count").$type<1 | null>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
