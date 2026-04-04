@@ -175,6 +175,33 @@ const bootstrapStatements = [
       updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
     )
   `,
+  `
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      customer_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      default_payment_method_id TEXT NOT NULL,
+      cancel_at_period_end BOOLEAN DEFAULT false NOT NULL,
+      canceled_at TIMESTAMPTZ,
+      ended_at TIMESTAMPTZ,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      current_period_start TIMESTAMPTZ NOT NULL,
+      current_period_end TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS subscription_items (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      subscription_id TEXT NOT NULL,
+      price_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
 ] as const;
 
 declare global {

@@ -87,3 +87,38 @@ export const paymentMethods = pgTable("payment_methods", {
     .defaultNow()
     .notNull(),
 });
+
+export const subscriptions = pgTable("subscriptions", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  status: text("status").$type<"active" | "canceled">().notNull(),
+  defaultPaymentMethodId: text("default_payment_method_id").notNull(),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+  canceledAt: timestamp("canceled_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  livemode: boolean("livemode").default(false).notNull(),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true })
+    .notNull(),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true })
+    .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const subscriptionItems = pgTable("subscription_items", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  subscriptionId: text("subscription_id").notNull(),
+  priceId: text("price_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});

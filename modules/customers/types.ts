@@ -30,6 +30,8 @@ export type DeletedCustomer = {
   deleted: true;
 };
 
+export type DeleteCustomerResult = DeletedCustomer | "has_subscriptions" | null;
+
 export type ListCustomersParams = {
   limit?: number;
   email?: string;

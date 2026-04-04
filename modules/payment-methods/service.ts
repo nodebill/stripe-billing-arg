@@ -1,7 +1,11 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
-import { customers, paymentMethods } from "@/infrastructure/database/schema";
+import {
+  customers,
+  paymentMethods,
+  subscriptions,
+} from "@/infrastructure/database/schema";
 import { DEFAULT_CUSTOM_PAYMENT_METHOD_TYPE } from "./types";
 import type {
   AttachPaymentMethodInput,
@@ -227,44 +231,76 @@ export async function detachPaymentMethod(
   await ensureTables();
   const db = getDb();
 
-  const existing = await findPaymentMethodRow(organizationId, paymentMethodId);
-  if (!existing) {
-    throw new PaymentMethodError(
-      "not_found",
-      `No such payment_method: '${paymentMethodId}'`
-    );
-  }
-
-  if (existing.detachedAt) {
-    throw new PaymentMethodError(
-      "already_detached",
-      "This payment method has already been detached"
-    );
-  }
-
-  if (!existing.customerId) {
-    throw new PaymentMethodError(
-      "not_attached",
-      "This payment method is not attached to a customer"
-    );
-  }
-
-  const [row] = await db
-    .update(paymentMethods)
-    .set({
-      customerId: null,
-      detachedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(paymentMethods.id, paymentMethodId),
-        eq(paymentMethods.organizationId, organizationId)
+  return db.transaction(async (tx) => {
+    const paymentMethodRows = await tx
+      .select()
+      .from(paymentMethods)
+      .where(
+        and(
+          eq(paymentMethods.id, paymentMethodId),
+          eq(paymentMethods.organizationId, organizationId)
+        )
       )
-    )
-    .returning();
+      .limit(1);
 
-  return toPaymentMethod(row);
+    const existing = paymentMethodRows[0];
+    if (!existing) {
+      throw new PaymentMethodError(
+        "not_found",
+        `No such payment_method: '${paymentMethodId}'`
+      );
+    }
+
+    if (existing.detachedAt) {
+      throw new PaymentMethodError(
+        "already_detached",
+        "This payment method has already been detached"
+      );
+    }
+
+    if (!existing.customerId) {
+      throw new PaymentMethodError(
+        "not_attached",
+        "This payment method is not attached to a customer"
+      );
+    }
+
+    const now = new Date();
+
+    await tx
+      .update(subscriptions)
+      .set({
+        status: "canceled",
+        cancelAtPeriodEnd: false,
+        canceledAt: now,
+        endedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(subscriptions.organizationId, organizationId),
+          eq(subscriptions.defaultPaymentMethodId, paymentMethodId),
+          eq(subscriptions.status, "active")
+        )
+      );
+
+    const [row] = await tx
+      .update(paymentMethods)
+      .set({
+        customerId: null,
+        detachedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(paymentMethods.id, paymentMethodId),
+          eq(paymentMethods.organizationId, organizationId)
+        )
+      )
+      .returning();
+
+    return toPaymentMethod(row);
+  });
 }
 
 export async function listCustomerPaymentMethods(

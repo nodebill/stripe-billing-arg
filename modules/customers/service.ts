@@ -1,12 +1,16 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
-import { customers, paymentMethods } from "@/infrastructure/database/schema";
+import {
+  customers,
+  paymentMethods,
+  subscriptions,
+} from "@/infrastructure/database/schema";
 import type { StripeList } from "@/modules/shared/types";
 import type {
   CreateCustomerInput,
   Customer,
-  DeletedCustomer,
+  DeleteCustomerResult,
   ListCustomersParams,
   UpdateCustomerInput,
 } from "./types";
@@ -101,9 +105,25 @@ export async function updateCustomer(
 export async function deleteCustomer(
   organizationId: string,
   customerId: string
-): Promise<DeletedCustomer | null> {
+): Promise<DeleteCustomerResult> {
   await ensureTables();
   const db = getDb();
+
+  const activeSubscriptionRows = await db
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.organizationId, organizationId),
+        eq(subscriptions.customerId, customerId),
+        eq(subscriptions.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (activeSubscriptionRows.length > 0) {
+    return "has_subscriptions";
+  }
 
   const rows = await db.transaction(async (tx) => {
     const now = new Date();

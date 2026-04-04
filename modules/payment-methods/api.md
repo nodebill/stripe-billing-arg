@@ -37,3 +37,5 @@ Only unattached payment methods can be attached. Detached payment methods cannot
 Detaches a payment method from its customer.
 
 Detach is irreversible.
+
+Detaching a payment method immediately cancels any active subscriptions that use it as their default payment method.
