@@ -181,7 +181,8 @@ const bootstrapStatements = [
       organization_id TEXT NOT NULL,
       customer_id TEXT NOT NULL,
       status TEXT NOT NULL,
-      default_payment_method_id TEXT NOT NULL,
+      collection_method TEXT NOT NULL DEFAULT 'charge_automatically',
+      default_payment_method_id TEXT,
       cancel_at_period_end BOOLEAN DEFAULT false NOT NULL,
       canceled_at TIMESTAMPTZ,
       ended_at TIMESTAMPTZ,
@@ -193,12 +194,92 @@ const bootstrapStatements = [
     )
   `,
   `
+    ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS collection_method TEXT
+  `,
+  `
+    UPDATE subscriptions
+    SET collection_method = 'charge_automatically'
+    WHERE collection_method IS NULL
+  `,
+  `
+    ALTER TABLE subscriptions
+    ALTER COLUMN default_payment_method_id DROP NOT NULL
+  `,
+  `
     CREATE TABLE IF NOT EXISTS subscription_items (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT NOT NULL,
       subscription_id TEXT NOT NULL,
       price_id TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS invoices (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      customer_id TEXT NOT NULL,
+      subscription_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      collection_method TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      subtotal INTEGER NOT NULL,
+      amount_due INTEGER NOT NULL,
+      amount_paid INTEGER DEFAULT 0 NOT NULL,
+      due_date TIMESTAMPTZ,
+      period_start TIMESTAMPTZ NOT NULL,
+      period_end TIMESTAMPTZ NOT NULL,
+      auto_advance BOOLEAN DEFAULT true NOT NULL,
+      finalized_at TIMESTAMPTZ,
+      paid_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE UNIQUE INDEX IF NOT EXISTS invoices_subscription_period_idx
+    ON invoices (organization_id, subscription_id, period_start, period_end)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS invoice_line_items (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      invoice_id TEXT NOT NULL,
+      price_id TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1 NOT NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      period_start TIMESTAMPTZ NOT NULL,
+      period_end TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS invoice_deliveries (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      invoice_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      status TEXT NOT NULL,
+      recipient TEXT,
+      payload JSONB DEFAULT '{}'::jsonb NOT NULL,
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS billing_processor_state (
+      id TEXT PRIMARY KEY NOT NULL,
+      lease_owner TEXT,
+      lease_expires_at TIMESTAMPTZ,
+      last_started_at TIMESTAMPTZ,
+      last_finished_at TIMESTAMPTZ,
+      last_error TEXT,
+      last_summary JSONB DEFAULT '{}'::jsonb NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
     )
   `,

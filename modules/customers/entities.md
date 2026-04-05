@@ -17,5 +17,6 @@
 - Customers belong to one organization.
 - Customers can have many attached payment methods.
 - Customers can have many subscriptions.
+- Customers can have many invoices.
 - Deleting a customer automatically detaches any attached payment methods before the customer is removed.
-- Customers with active subscriptions cannot be deleted.
+- Customers with active or past-due subscriptions cannot be deleted.

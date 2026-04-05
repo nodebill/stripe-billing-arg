@@ -1,6 +1,9 @@
 import type { StripeList } from "@/modules/shared/types";
 
-export type SubscriptionStatus = "active" | "canceled";
+export type SubscriptionStatus = "active" | "past_due" | "canceled";
+export type SubscriptionCollectionMethod =
+  | "charge_automatically"
+  | "send_invoice";
 
 export type SubscriptionItem = {
   id: string;
@@ -13,7 +16,8 @@ export type Subscription = {
   object: "subscription";
   customer: string;
   status: SubscriptionStatus;
-  default_payment_method: string;
+  collection_method: SubscriptionCollectionMethod;
+  default_payment_method: string | null;
   items: SubscriptionItem[];
   cancel_at_period_end: boolean;
   canceled_at: number | null;
@@ -27,7 +31,8 @@ export type Subscription = {
 
 export type CreateSubscriptionInput = {
   customer: string;
-  default_payment_method: string;
+  collection_method?: SubscriptionCollectionMethod;
+  default_payment_method?: string;
   items: Array<{
     price: string;
   }>;

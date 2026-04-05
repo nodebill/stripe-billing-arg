@@ -11,20 +11,28 @@ Query params:
 - `starting_after`
 - `ending_before`
 
+Supported `status` values:
+- `active`
+- `past_due`
+- `canceled`
+
 ## `POST /api/subscriptions`
 
 Creates a subscription.
 
 Request body:
 - `customer`
-- `default_payment_method`
+- `collection_method?`
+- `default_payment_method?`
 - `items`
 
 Rules:
 - `items` must contain exactly one item in this version.
 - Each item supports only `price`.
 - The selected price must be an active recurring price.
-- The payment method must already be attached to the same customer.
+- `collection_method` defaults to `charge_automatically`.
+- `default_payment_method` is required only when `collection_method=charge_automatically`.
+- When present, the payment method must already be attached to the same customer.
 
 ## `GET /api/subscriptions/:id`
 
