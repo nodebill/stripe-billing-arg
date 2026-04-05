@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { Package, Users } from "lucide-react";
+import { Activity, Package, Users } from "lucide-react";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -48,6 +48,13 @@ export default function RootLayout({
             >
               <Users className="size-4" />
               Customers
+            </Link>
+            <Link
+              href="/billing/meters"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            >
+              <Activity className="size-4" />
+              Meters
             </Link>
           </div>
         </nav>

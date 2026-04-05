@@ -297,6 +297,29 @@ const bootstrapStatements = [
     )
   `,
   `
+    CREATE TABLE IF NOT EXISTS meter_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      meter_id TEXT NOT NULL,
+      customer_id TEXT NOT NULL,
+      identifier TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      value INTEGER NOT NULL,
+      event_timestamp TIMESTAMPTZ NOT NULL,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE UNIQUE INDEX IF NOT EXISTS meter_events_org_identifier_idx
+    ON meter_events (organization_id, identifier)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS meter_events_org_meter_customer_timestamp_idx
+    ON meter_events (organization_id, meter_id, customer_id, event_timestamp)
+  `,
+  `
     ALTER TABLE prices
     ADD COLUMN IF NOT EXISTS meter TEXT
   `,

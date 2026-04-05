@@ -48,6 +48,25 @@ export const meters = pgTable("meters", {
     .notNull(),
 });
 
+export const meterEvents = pgTable("meter_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  meterId: text("meter_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  identifier: text("identifier").notNull(),
+  eventName: text("event_name").notNull(),
+  value: integer("value").notNull(),
+  eventTimestamp: timestamp("event_timestamp", { withTimezone: true })
+    .notNull(),
+  livemode: boolean("livemode").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const prices = pgTable("prices", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull(),

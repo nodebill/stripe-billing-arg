@@ -7,6 +7,8 @@ import {
   invoiceDeliveries,
   invoiceLineItems,
   invoices,
+  meterEvents,
+  meters,
   paymentMethods,
   prices,
   products,
@@ -23,6 +25,8 @@ import {
 } from "../modules/billing/service";
 import { deleteCustomer, createCustomer } from "../modules/customers/service";
 import { listInvoices } from "../modules/invoices/service";
+import { createMeterEvent } from "../modules/meter-events/service";
+import { createMeter } from "../modules/meters/service";
 import {
   attachPaymentMethod,
   createPaymentMethod,
@@ -53,8 +57,10 @@ async function resetDb() {
   await db.delete(invoices);
   await db.delete(subscriptionItems);
   await db.delete(subscriptions);
+  await db.delete(meterEvents);
   await db.delete(paymentMethods);
   await db.delete(prices);
+  await db.delete(meters);
   await db.delete(products);
   await db.delete(customers);
   await db.delete(billingProcessorState);
@@ -96,6 +102,48 @@ async function createRecurringFixture() {
     customer,
     paymentMethod,
     product,
+    price,
+  };
+}
+
+async function createMeteredFixture(
+  aggregation: "sum" | "count" = "sum"
+) {
+  const base = await createRecurringFixture();
+  const meter = await createMeter(ORGANIZATION_ID, {
+    display_name: `Meter ${Date.now()}`,
+    event_name: `meter_event_${Date.now()}`,
+    default_aggregation: { formula: aggregation },
+  });
+
+  if ("error" in meter) {
+    throw new Error(meter.error);
+  }
+
+  const price = await createPrice(ORGANIZATION_ID, {
+    product: base.product.id,
+    currency: "usd",
+    unit_amount: aggregation === "sum" ? 75 : 500,
+    type: "recurring",
+    recurring: {
+      interval: "month",
+      interval_count: 1,
+      usage_type: "metered",
+    },
+    meter: meter.id,
+  });
+
+  if (!price || "error" in price) {
+    throw new Error(
+      price && "error" in price
+        ? price.error
+        : "Expected metered price fixture to be created"
+    );
+  }
+
+  return {
+    ...base,
+    meter,
     price,
   };
 }
@@ -227,6 +275,29 @@ test("existing subscriptions keep working after their price is archived", async 
   const reloaded = await getSubscription(ORGANIZATION_ID, subscription.id);
   assert.ok(reloaded);
   assert.equal(reloaded.status, "active");
+});
+
+test("blocks duplicate active or past_due metered subscriptions for the same customer and meter", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture();
+
+  await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+
+  await assert.rejects(
+    () =>
+      createSubscription(ORGANIZATION_ID, {
+        customer: fixture.customer.id,
+        default_payment_method: fixture.paymentMethod.id,
+        items: [{ price: fixture.price.id }],
+      }),
+    (error: unknown) =>
+      error instanceof SubscriptionError &&
+      error.code === "metered_subscription_conflict"
+  );
 });
 
 test("creates draft renewal invoices before finalization", async () => {
@@ -366,6 +437,91 @@ test("send-invoice renewals create an open invoice and mocked delivery", async (
   });
   assert.equal(invoiceList.data.length, 1);
   assert.equal(invoiceList.data[0]?.latest_delivery?.status, "sent");
+});
+
+test("metered renewals bill prior-period usage and keep invoice periods on the next cycle", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum");
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2);
+
+  await createMeterEvent(ORGANIZATION_ID, {
+    event_name: fixture.meter.event_name,
+    identifier: `evt_${Date.now()}_1`,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 3,
+    },
+    timestamp: Math.floor(new Date(pastStart.getTime() + 60_000).getTime() / 1000),
+  });
+  await createMeterEvent(ORGANIZATION_ID, {
+    event_name: fixture.meter.event_name,
+    identifier: `evt_${Date.now()}_2`,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 5,
+    },
+    timestamp: Math.floor(new Date(pastEnd.getTime() - 60_000).getTime() / 1000),
+  });
+
+  const summary = await processDueSubscriptions({
+    runAt: new Date("2026-04-04T14:30:00.000Z"),
+    trigger: "test_metered_sum",
+  });
+
+  assert.equal(summary.created_invoices, 1);
+  assert.equal(summary.paid_invoices, 1);
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows[0]?.subtotal, 600);
+  assert.equal(invoiceRows[0]?.amountDue, 600);
+  assert.equal(invoiceRows[0]?.periodStart.getTime(), pastEnd.getTime());
+
+  const lineItems = await getDb().select().from(invoiceLineItems);
+  assert.equal(lineItems[0]?.quantity, 8);
+  assert.equal(lineItems[0]?.amount, 600);
+  assert.equal(lineItems[0]?.periodStart.getTime(), pastStart.getTime());
+  assert.equal(lineItems[0]?.periodEnd.getTime(), pastEnd.getTime());
+
+  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  assert.ok(renewed);
+  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+});
+
+test("zero-usage metered renewals create zero-amount invoices and still advance subscriptions", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("count");
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+  const { pastEnd } = await expireSubscription(subscription.id, 2);
+
+  const summary = await processDueSubscriptions({
+    runAt: new Date("2026-04-04T14:45:00.000Z"),
+    trigger: "test_metered_zero",
+  });
+
+  assert.equal(summary.created_invoices, 1);
+  assert.equal(summary.paid_invoices, 1);
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows[0]?.subtotal, 0);
+  assert.equal(invoiceRows[0]?.amountDue, 0);
+  assert.equal(invoiceRows[0]?.status, "paid");
+
+  const lineItems = await getDb().select().from(invoiceLineItems);
+  assert.equal(lineItems[0]?.quantity, 0);
+  assert.equal(lineItems[0]?.amount, 0);
+
+  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  assert.ok(renewed);
+  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
 });
 
 test("overdue send-invoice renewals move invoices and subscriptions to past_due", async () => {
