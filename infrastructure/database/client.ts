@@ -202,6 +202,23 @@ const bootstrapStatements = [
       updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
     )
   `,
+  `
+    CREATE TABLE IF NOT EXISTS meters (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      default_aggregation TEXT NOT NULL,
+      status TEXT DEFAULT 'active' NOT NULL,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    ALTER TABLE prices
+    ADD COLUMN IF NOT EXISTS meter TEXT
+  `,
 ] as const;
 
 declare global {

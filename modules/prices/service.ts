@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
-import { prices, products } from "@/infrastructure/database/schema";
+import { meters, prices, products } from "@/infrastructure/database/schema";
 import type {
   CreatePriceInput,
   ListPricesParams,
@@ -28,8 +28,10 @@ function toPrice(row: typeof prices.$inferSelect): Price {
         ? {
             interval: row.recurringInterval,
             interval_count: 1,
+            usage_type: row.meter ? "metered" : "licensed",
           }
         : null,
+    meter: row.meter ?? null,
     created: Math.floor(row.createdAt.getTime() / 1000),
     updated: Math.floor(row.updatedAt.getTime() / 1000),
   };
@@ -55,7 +57,7 @@ export async function getPrice(
 export async function createPrice(
   organizationId: string,
   input: CreatePriceInput
-): Promise<Price | null> {
+): Promise<Price | null | { error: string }> {
   await ensureTables();
   const db = getDb();
 
@@ -81,6 +83,28 @@ export async function createPrice(
       return null;
     }
 
+    let meterId: string | null = null;
+    if (input.type === "recurring" && input.meter) {
+      const meterRows = await tx
+        .select({ id: meters.id, status: meters.status })
+        .from(meters)
+        .where(
+          and(
+            eq(meters.id, input.meter),
+            eq(meters.organizationId, organizationId)
+          )
+        )
+        .limit(1);
+
+      if (meterRows.length === 0) {
+        return { error: `No such meter: '${input.meter}'` };
+      }
+      if (meterRows[0].status !== "active") {
+        return { error: `Meter '${input.meter}' is not active` };
+      }
+      meterId = meterRows[0].id;
+    }
+
     const [row] = await tx
       .insert(prices)
       .values({
@@ -99,6 +123,7 @@ export async function createPrice(
           input.type === "recurring" ? input.recurring.interval : null,
         recurringIntervalCount:
           input.type === "recurring" ? input.recurring.interval_count : null,
+        meter: meterId,
         createdAt: now,
         updatedAt: now,
       })
