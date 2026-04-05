@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, ReceiptText, Repeat, WalletCards } from "lucide-react";
+import {
+  formatPriceAmount,
+  formatPriceType,
+} from "@/app/products/[id]/_components/price-format";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -32,21 +36,6 @@ function formatDate(unix: number) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function formatPriceAmount(unitAmount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-  }).format(unitAmount / 100);
-}
-
-function formatRecurringLabel(price: Price) {
-  if (!price.recurring) {
-    return "One-time";
-  }
-
-  return price.recurring.interval === "month" ? "Monthly" : "Yearly";
 }
 
 function formatCollectionMethodLabel(
@@ -220,8 +209,9 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     .map((price) => {
       const productName = productNameById.get(price.product) ?? price.product;
       const label = `${productName} • ${
-        price.nickname || formatPriceAmount(price.unit_amount, price.currency)
-      } • ${formatRecurringLabel(price)}`;
+        price.nickname ||
+        formatPriceAmount(price.unit_amount_decimal, price.currency)
+      } • ${formatPriceType(price)}`;
 
       return {
         id: price.id,
@@ -355,8 +345,8 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 const priceLabel = price
                   ? `${productName} • ${
                       price.nickname ||
-                      formatPriceAmount(price.unit_amount, price.currency)
-                    } • ${formatRecurringLabel(price)}`
+                      formatPriceAmount(price.unit_amount_decimal, price.currency)
+                    } • ${formatPriceType(price)}`
                   : subscription.items[0]?.price ?? "Unknown price";
 
                 return (
@@ -483,7 +473,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     {formatCollectionMethodLabel(invoice.collection_method)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {formatPriceAmount(invoice.amount_due, invoice.currency)}
+                    {formatPriceAmount(String(invoice.amount_due), invoice.currency)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {invoice.paid_at

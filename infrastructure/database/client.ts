@@ -43,7 +43,8 @@ const bootstrapStatements = [
       metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
       livemode BOOLEAN DEFAULT false NOT NULL,
       type TEXT NOT NULL,
-      unit_amount INTEGER NOT NULL,
+      unit_amount INTEGER,
+      unit_amount_decimal TEXT NOT NULL,
       recurring_interval TEXT,
       recurring_interval_count INTEGER,
       created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
@@ -62,6 +63,23 @@ const bootstrapStatements = [
   `
     ALTER TABLE prices
     ALTER COLUMN metadata SET NOT NULL
+  `,
+  `
+    ALTER TABLE prices
+    ADD COLUMN IF NOT EXISTS unit_amount_decimal TEXT
+  `,
+  `
+    UPDATE prices
+    SET unit_amount_decimal = unit_amount::text
+    WHERE unit_amount_decimal IS NULL AND unit_amount IS NOT NULL
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN unit_amount DROP NOT NULL
+  `,
+  `
+    ALTER TABLE prices
+    ALTER COLUMN unit_amount_decimal SET NOT NULL
   `,
   `
     ALTER TABLE prices

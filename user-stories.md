@@ -7,6 +7,9 @@
 - As an operator, I can create a one-time flat price for a product.
 - As an operator, I can create a recurring flat price for a product with a monthly or yearly billing interval.
 - As an operator, I can create a recurring metered price that points at one billing meter.
+- As an operator, I can create a billing meter from the admin UI without leaving the meters area.
+- As an operator, when I am creating a metered price and there is no suitable meter yet, I can create one inline and continue the pricing flow.
+- As an operator, I can create a recurring metered price with `unit_amount_decimal` so a fee like 1% of processed volume can be modeled without introducing a custom pricing type.
 - As an operator, I can archive a price without deleting its history.
 - As an operator, I can set one active price as the product's default price.
 - As an operator, I understand that changing a price's amount, currency, or billing interval requires creating a new price.
@@ -31,5 +34,6 @@
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
 - As an operator, the system processes due subscriptions in the background, creates renewal invoices, and either mocks an automatic payment or mocks sending an invoice based on the subscription collection method.
 - As an operator, a metered subscription renewal bills the usage recorded during the period that just ended.
+- As an operator, a metered renewal can multiply whole-number usage by a decimal per-unit amount and round once to the nearest minor unit on the invoice line item.
 - As an operator, I can see when a send-invoice renewal has become past due.
 - As an operator, I cannot delete a customer while they still have active or past-due subscriptions.

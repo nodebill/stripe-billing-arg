@@ -19,6 +19,9 @@ Request body:
 - `event_name`
 - `default_aggregation.formula`
 
+This endpoint also backs the admin UI meter creation dialog and the inline
+shortcut shown while creating metered prices.
+
 ## `GET /api/billing/meters/:id`
 
 Returns a single meter.

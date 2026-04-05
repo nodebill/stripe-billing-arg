@@ -174,3 +174,30 @@ Add `meterIdSchema` using existing `stripeIdSchema("meter", "Meter")`.
 8. Verify validation rejects: meter without usage_type metered, metered without meter, inactive meter, nonexistent meter
 9. Deactivate a meter, verify it can't be attached to new prices
 10. Run `npm run build` to check for type errors
+
+## Talo Percentage Recipe
+
+Use the existing Stripe-style primitives instead of adding a custom percentage
+price type:
+
+- Meter: `processed_volume`
+- Meter aggregation: `sum`
+- Meter event `payload[value]`: processed volume in the price currency's minor units
+- Price: recurring monthly, `usage_type="metered"`, same currency as the meter events
+- Price amount: `unit_amount_decimal="0.01"`
+
+Example:
+
+- A meter event with `payload[value]=1050` represents `$10.50` of processed volume
+  in USD.
+- A metered price with `unit_amount_decimal="0.01"` bills `10.5` cents for that
+  usage.
+- Renewal invoicing rounds that line item once to the nearest minor unit, so the
+  billed amount becomes `11` cents.
+
+Current assumptions for this recipe:
+
+- One currency per price
+- Meter events stay positive
+- Refunds and chargebacks are not netted through negative usage events in this
+  iteration

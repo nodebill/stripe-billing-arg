@@ -107,7 +107,18 @@ async function createRecurringFixture() {
 }
 
 async function createMeteredFixture(
-  aggregation: "sum" | "count" = "sum"
+  aggregation: "sum" | "count" = "sum",
+  amount:
+    | {
+        unit_amount: number;
+        unit_amount_decimal?: undefined;
+      }
+    | {
+        unit_amount?: undefined;
+        unit_amount_decimal: string;
+      } = {
+    unit_amount: aggregation === "sum" ? 75 : 500,
+  }
 ) {
   const base = await createRecurringFixture();
   const meter = await createMeter(ORGANIZATION_ID, {
@@ -123,7 +134,7 @@ async function createMeteredFixture(
   const price = await createPrice(ORGANIZATION_ID, {
     product: base.product.id,
     currency: "usd",
-    unit_amount: aggregation === "sum" ? 75 : 500,
+    ...amount,
     type: "recurring",
     recurring: {
       interval: "month",
@@ -198,6 +209,14 @@ test("creates subscriptions with either auto-charge or send-invoice collection m
 
   assert.equal(manual.collection_method, "send_invoice");
   assert.equal(manual.default_payment_method, null);
+});
+
+test("integer prices expose a mirrored unit_amount_decimal value", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+
+  assert.equal(fixture.price.unit_amount, 2500);
+  assert.equal(fixture.price.unit_amount_decimal, "2500");
 });
 
 test("rejects auto-charge subscriptions without a default payment method", async () => {
@@ -490,6 +509,51 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
   const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+});
+
+test("metered renewals support decimal unit amounts and round half up to minor units", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", {
+    unit_amount_decimal: "0.01",
+  });
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2);
+
+  assert.equal(fixture.price.unit_amount, null);
+  assert.equal(fixture.price.unit_amount_decimal, "0.01");
+
+  await createMeterEvent(ORGANIZATION_ID, {
+    event_name: fixture.meter.event_name,
+    identifier: `evt_${Date.now()}_decimal`,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 1050,
+    },
+    timestamp: Math.floor(new Date(pastStart.getTime() + 60_000).getTime() / 1000),
+  });
+
+  const summary = await processDueSubscriptions({
+    runAt: new Date("2026-04-04T14:35:00.000Z"),
+    trigger: "test_metered_decimal",
+  });
+
+  assert.equal(summary.created_invoices, 1);
+  assert.equal(summary.paid_invoices, 1);
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows[0]?.subtotal, 11);
+  assert.equal(invoiceRows[0]?.amountDue, 11);
+  assert.equal(invoiceRows[0]?.periodStart.getTime(), pastEnd.getTime());
+
+  const lineItems = await getDb().select().from(invoiceLineItems);
+  assert.equal(lineItems[0]?.quantity, 1050);
+  assert.equal(lineItems[0]?.amount, 11);
+  assert.equal(lineItems[0]?.periodStart.getTime(), pastStart.getTime());
+  assert.equal(lineItems[0]?.periodEnd.getTime(), pastEnd.getTime());
 });
 
 test("zero-usage metered renewals create zero-amount invoices and still advance subscriptions", async () => {

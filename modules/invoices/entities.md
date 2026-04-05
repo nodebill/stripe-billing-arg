@@ -41,4 +41,5 @@
 - `send_invoice` invoices stay `open` after mocked delivery and become `past_due` if their due date passes unpaid.
 - A subscription billing period can produce at most one invoice.
 - Metered renewal invoices use the next subscription period for the invoice header but use the just-finished period on the line item that represents recorded usage.
+- Metered renewal line items multiply integer usage by the price's `unit_amount_decimal` and round once to the nearest minor unit using half-up semantics.
 - Zero-usage metered renewals still create invoices and line items with amount `0`.
