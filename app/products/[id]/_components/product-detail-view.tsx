@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { Meter } from "@/modules/meters/types";
 import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
@@ -31,6 +32,7 @@ function formatDate(unix: number) {
 export function ProductDetailView({ productId }: { productId: string }) {
   const [product, setProduct] = useState<Product | null>(null);
   const [prices, setPrices] = useState<Price[]>([]);
+  const [meters, setMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
@@ -39,9 +41,15 @@ export function ProductDetailView({ productId }: { productId: string }) {
     setError(null);
 
     try {
-      const [productRes, pricesRes] = await Promise.all([
+      const [productRes, pricesRes, metersRes] = await Promise.all([
         fetch(`/api/products/${productId}`),
         fetch(`/api/prices?${new URLSearchParams({ product: productId, limit: "100" })}`),
+        fetch(
+          `/api/billing/meters?${new URLSearchParams({
+            limit: "100",
+            status: "active",
+          })}`
+        ),
       ]);
 
       if (!productRes.ok) {
@@ -54,15 +62,23 @@ export function ProductDetailView({ productId }: { productId: string }) {
         throw new Error(data.error?.message ?? "Failed to load prices");
       }
 
+      if (!metersRes.ok) {
+        const data = await metersRes.json();
+        throw new Error(data.error?.message ?? "Failed to load meters");
+      }
+
       const productData: Product = await productRes.json();
       const pricesData: StripeList<Price> = await pricesRes.json();
+      const metersData: StripeList<Meter> = await metersRes.json();
 
       setProduct(productData);
       setPrices(pricesData.data);
+      setMeters(metersData.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load product");
       setProduct(null);
       setPrices([]);
+      setMeters([]);
     } finally {
       setLoading(false);
     }
@@ -75,6 +91,13 @@ export function ProductDetailView({ productId }: { productId: string }) {
   function refresh() {
     setLoading(true);
     fetchProduct();
+  }
+
+  async function handleMeterCreated(meter: Meter) {
+    setMeters((current) => [
+      meter,
+      ...current.filter((existing) => existing.id !== meter.id),
+    ]);
   }
 
   async function handleSetDefault(priceId: string) {
@@ -136,6 +159,10 @@ export function ProductDetailView({ productId }: { productId: string }) {
   }
 
   const defaultPrice = prices.find((price) => price.id === product.default_price);
+  const meterOptions = meters.map((meter) => ({
+    id: meter.id,
+    label: `${meter.display_name} • ${meter.event_name}`,
+  }));
 
   return (
     <div className="flex flex-col gap-8">
@@ -163,7 +190,12 @@ export function ProductDetailView({ productId }: { productId: string }) {
                 {product.description || "No product description yet."}
               </p>
             </div>
-            <CreatePriceDialog productId={product.id} onCreated={refresh} />
+            <CreatePriceDialog
+              productId={product.id}
+              meterOptions={meterOptions}
+              onMeterCreated={handleMeterCreated}
+              onCreated={refresh}
+            />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
@@ -180,7 +212,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
               <p className="mt-2 text-sm font-medium">
                 {defaultPrice
                   ? `${formatPriceAmount(
-                      defaultPrice.unit_amount,
+                      defaultPrice.unit_amount_decimal,
                       defaultPrice.currency
                     )} ${formatPriceType(defaultPrice)}`
                   : "No default price"}
@@ -215,7 +247,12 @@ export function ProductDetailView({ productId }: { productId: string }) {
               Add your first price for this product.
             </p>
           </div>
-          <CreatePriceDialog productId={product.id} onCreated={refresh} />
+          <CreatePriceDialog
+            productId={product.id}
+            meterOptions={meterOptions}
+            onMeterCreated={handleMeterCreated}
+            onCreated={refresh}
+          />
         </div>
       ) : (
         <div className="rounded-xl border">
@@ -248,7 +285,10 @@ export function ProductDetailView({ productId }: { productId: string }) {
                       </div>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {formatPriceAmount(price.unit_amount, price.currency)}
+                      {formatPriceAmount(
+                        price.unit_amount_decimal,
+                        price.currency
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{formatPriceType(price)}</Badge>

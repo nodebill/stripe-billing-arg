@@ -22,6 +22,13 @@
       "when": 1775320528263,
       "tag": "0002_rapid_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775422542031,
+      "tag": "0003_wandering_pet_avengers",
+      "breakpoints": true
     }
   ]
 }

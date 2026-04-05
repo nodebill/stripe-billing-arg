@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Activity, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Meter, StripeMeterList } from "@/modules/meters/types";
+import { CreateMeterDialog } from "./create-meter-dialog";
 
 function formatDate(unix: number) {
   return new Date(unix * 1000).toLocaleDateString("en-US", {
@@ -28,50 +29,51 @@ export function MetersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
+  const loadMeters = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-    async function loadMeters() {
-      try {
-        setError(null);
-        const res = await fetch("/api/billing/meters?limit=100");
-        const data = await res.json();
+    try {
+      const res = await fetch("/api/billing/meters?limit=100");
+      const data = await res.json();
 
-        if (!res.ok) {
-          throw new Error(data.error?.message ?? "Failed to load meters");
-        }
-
-        if (active) {
-          const list = data as StripeMeterList;
-          setMeters(list.data);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Failed to load meters");
-          setMeters([]);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+      if (!res.ok) {
+        throw new Error(data.error?.message ?? "Failed to load meters");
       }
+
+      const list = data as StripeMeterList;
+      setMeters(list.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load meters");
+      setMeters([]);
+    } finally {
+      setLoading(false);
     }
-
-    loadMeters();
-
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useEffect(() => {
+    loadMeters();
+  }, [loadMeters]);
+
+  async function handleMeterCreated(meter: Meter) {
+    setError(null);
+    setMeters((current) => [
+      meter,
+      ...current.filter((existing) => existing.id !== meter.id),
+    ]);
+  }
 
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Meters</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Inspect active and inactive billing meters and drill into their recorded
-          usage.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Meters</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Inspect active and inactive billing meters and drill into their
+            recorded usage.
+          </p>
+        </div>
+        <CreateMeterDialog onCreated={handleMeterCreated} />
       </div>
 
       {loading ? (
@@ -87,7 +89,7 @@ export function MetersView() {
             <p className="font-medium">Could not load meters</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
           </div>
-          <Button variant="outline" onClick={() => window.location.reload()}>
+          <Button variant="outline" onClick={() => void loadMeters()}>
             Retry
           </Button>
         </div>
@@ -99,9 +101,10 @@ export function MetersView() {
           <div className="text-center">
             <p className="font-medium">No meters yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create a billing meter through the API to start recording usage.
+              Create your first billing meter to start recording usage.
             </p>
           </div>
+          <CreateMeterDialog onCreated={handleMeterCreated} />
         </div>
       ) : (
         <div className="rounded-xl border">

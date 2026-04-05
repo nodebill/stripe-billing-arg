@@ -2,6 +2,7 @@ import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import { meters, prices, products } from "@/infrastructure/database/schema";
+import { normalizeFixedDecimal } from "@/modules/shared/fixed-decimal";
 import type {
   CreatePriceInput,
   ListPricesParams,
@@ -22,7 +23,8 @@ function toPrice(row: typeof prices.$inferSelect): Price {
     nickname: row.nickname,
     product: row.productId,
     type: row.type,
-    unit_amount: row.unitAmount,
+    unit_amount: row.unitAmount ?? null,
+    unit_amount_decimal: row.unitAmountDecimal ?? String(row.unitAmount ?? 0),
     recurring:
       row.type === "recurring" && row.recurringInterval
         ? {
@@ -63,6 +65,11 @@ export async function createPrice(
 
   const now = new Date();
   const id = `price_${nanoid()}`;
+  const unitAmount =
+    input.unit_amount !== undefined ? input.unit_amount : null;
+  const unitAmountDecimal = normalizeFixedDecimal(
+    input.unit_amount_decimal ?? String(input.unit_amount)
+  );
 
   return db.transaction(async (tx) => {
     const productRows = await tx
@@ -118,7 +125,8 @@ export async function createPrice(
         metadata: input.metadata ?? {},
         livemode: false,
         type: input.type,
-        unitAmount: input.unit_amount,
+        unitAmount,
+        unitAmountDecimal,
         recurringInterval:
           input.type === "recurring" ? input.recurring.interval : null,
         recurringIntervalCount:

@@ -12,6 +12,7 @@ import {
   subscriptions,
 } from "@/infrastructure/database/schema";
 import { getMeterUsageTotal } from "@/modules/meter-events/service";
+import { multiplyIntegerByDecimalAndRound } from "@/modules/shared/fixed-decimal";
 import { addRecurringInterval, toUnix } from "@/modules/shared/time";
 import type {
   BillingProcessorState,
@@ -294,7 +295,10 @@ export async function createRenewalInvoices(runAt: Date) {
           Math.floor(usagePeriodEnd.getTime() / 1000)
         )
       : 1;
-    const lineItemAmount = price.unitAmount * usageQuantity;
+    const lineItemAmount = multiplyIntegerByDecimalAndRound(
+      usageQuantity,
+      price.unitAmountDecimal
+    );
     const lineItemPeriodStart = price.meter ? usagePeriodStart : nextPeriodStart;
     const lineItemPeriodEnd = price.meter ? usagePeriodEnd : nextPeriodEnd;
 

@@ -5,6 +5,16 @@ import {
   productIdSchema,
 } from "@/modules/shared/validation";
 
+const unitAmountDecimalSchema = z
+  .string()
+  .regex(/^(0|[1-9]\d*)(\.\d{1,12})?$/, {
+    message:
+      "unit_amount_decimal must be a positive decimal string with up to 12 fractional digits",
+  })
+  .refine((value) => Number(value) > 0, {
+    message: "unit_amount_decimal must be greater than zero",
+  });
+
 const basePriceSchema = {
   product: productIdSchema,
   currency: z
@@ -13,7 +23,9 @@ const basePriceSchema = {
   unit_amount: z.coerce
     .number()
     .int()
-    .positive("Unit amount must be greater than zero"),
+    .positive("Unit amount must be greater than zero")
+    .optional(),
+  unit_amount_decimal: unitAmountDecimalSchema.optional(),
   nickname: z.string().min(1, "Nickname cannot be empty").optional(),
   metadata: z.record(z.string(), z.string()).optional(),
   active: z.boolean().optional(),
@@ -25,7 +37,19 @@ export const createPriceSchema = z.discriminatedUnion("type", [
       ...basePriceSchema,
       type: z.literal("one_time"),
     })
-    .strict(),
+    .strict()
+    .superRefine((data, ctx) => {
+      const amountFields =
+        Number(data.unit_amount !== undefined) +
+        Number(data.unit_amount_decimal !== undefined);
+
+      if (amountFields !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Provide exactly one of unit_amount or unit_amount_decimal",
+        });
+      }
+    }),
   z
     .object({
       ...basePriceSchema,
@@ -44,6 +68,18 @@ export const createPriceSchema = z.discriminatedUnion("type", [
       meter: meterIdSchema.optional(),
     })
     .strict()
+    .superRefine((data, ctx) => {
+      const amountFields =
+        Number(data.unit_amount !== undefined) +
+        Number(data.unit_amount_decimal !== undefined);
+
+      if (amountFields !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Provide exactly one of unit_amount or unit_amount_decimal",
+        });
+      }
+    })
     .refine(
       (data) => {
         if (data.recurring.usage_type === "metered") return data.meter != null;

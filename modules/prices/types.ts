@@ -21,36 +21,40 @@ export type Price = {
   nickname: string | null;
   product: string;
   type: PriceType;
-  unit_amount: number;
+  unit_amount: number | null;
+  unit_amount_decimal: string;
   recurring: PriceRecurring | null;
   meter: string | null;
   created: number;
   updated: number;
 };
 
+type CreatePriceBaseInput = {
+  product: string;
+  currency: string;
+  unit_amount?: number;
+  unit_amount_decimal?: string;
+  nickname?: string;
+  metadata?: Record<string, string>;
+  active?: boolean;
+};
+
 export type CreatePriceInput =
-  | {
-      product: string;
-      currency: string;
-      unit_amount: number;
+  | (CreatePriceBaseInput & {
       type: "one_time";
       recurring?: undefined;
       meter?: undefined;
-      nickname?: string;
-      metadata?: Record<string, string>;
-      active?: boolean;
-    }
-  | {
-      product: string;
-      currency: string;
-      unit_amount: number;
-      type: "recurring";
-      recurring: { interval: PriceInterval; interval_count: 1; usage_type: UsageType };
-      meter?: string;
-      nickname?: string;
-      metadata?: Record<string, string>;
-      active?: boolean;
-    };
+    })
+  | (CreatePriceBaseInput &
+      {
+        type: "recurring";
+        recurring: {
+          interval: PriceInterval;
+          interval_count: 1;
+          usage_type: UsageType;
+        };
+        meter?: string;
+      });
 
 export type UpdatePriceInput = {
   active?: boolean;
