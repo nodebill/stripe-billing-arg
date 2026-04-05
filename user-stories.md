@@ -6,9 +6,12 @@
 - As an operator, I can open a product detail page and review the prices attached to that product.
 - As an operator, I can create a one-time flat price for a product.
 - As an operator, I can create a recurring flat price for a product with a monthly or yearly billing interval.
+- As an operator, I can create a recurring metered price that points at one billing meter.
 - As an operator, I can archive a price without deleting its history.
 - As an operator, I can set one active price as the product's default price.
 - As an operator, I understand that changing a price's amount, currency, or billing interval requires creating a new price.
+- As an operator, I can browse billing meters and inspect their recorded usage without creating usage events from the UI.
+- As an operator, I can record metered usage for a subscribed customer through the API using a meter event.
 
 ## Customer payment methods
 
@@ -27,5 +30,6 @@
 - As an operator, I can cancel a subscription immediately.
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
 - As an operator, the system processes due subscriptions in the background, creates renewal invoices, and either mocks an automatic payment or mocks sending an invoice based on the subscription collection method.
+- As an operator, a metered subscription renewal bills the usage recorded during the period that just ended.
 - As an operator, I can see when a send-invoice renewal has become past due.
 - As an operator, I cannot delete a customer while they still have active or past-due subscriptions.

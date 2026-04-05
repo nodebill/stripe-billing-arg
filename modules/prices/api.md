@@ -32,6 +32,13 @@ Recurring price:
 - `type: "recurring"`
 - `recurring.interval: "month" | "year"`
 - `recurring.interval_count: 1`
+- `recurring.usage_type?: "licensed" | "metered"`
+- `meter?`
+
+Rules:
+- `recurring.usage_type` defaults to `licensed`.
+- `meter` is required when `recurring.usage_type=metered`.
+- `meter` is rejected for one-time prices and licensed recurring prices.
 
 ## `GET /api/prices/:id`
 

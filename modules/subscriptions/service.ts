@@ -32,6 +32,7 @@ export class SubscriptionError extends Error {
     | "default_payment_method_required"
     | "invalid_items"
     | "invalid_price"
+    | "metered_subscription_conflict"
     | "already_canceled";
 
   constructor(code: SubscriptionError["code"], message: string) {
@@ -113,6 +114,42 @@ async function getSubscriptionRow(
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+async function hasActiveMeteredSubscription(
+  tx: Pick<ReturnType<typeof getDb>, "select">,
+  organizationId: string,
+  customerId: string,
+  meterId: string
+) {
+  const subscriptionRows = await tx
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .innerJoin(
+      subscriptionItems,
+      and(
+        eq(subscriptionItems.organizationId, subscriptions.organizationId),
+        eq(subscriptionItems.subscriptionId, subscriptions.id)
+      )
+    )
+    .innerJoin(
+      prices,
+      and(
+        eq(prices.organizationId, subscriptionItems.organizationId),
+        eq(prices.id, subscriptionItems.priceId)
+      )
+    )
+    .where(
+      and(
+        eq(subscriptions.organizationId, organizationId),
+        eq(subscriptions.customerId, customerId),
+        inArray(subscriptions.status, ["active", "past_due"]),
+        eq(prices.meter, meterId)
+      )
+    )
+    .limit(1);
+
+  return subscriptionRows.length > 0;
 }
 
 function requireDefaultPaymentMethod(
@@ -219,6 +256,22 @@ export async function createSubscription(
         "invalid_price",
         "The subscription price must be an active recurring price"
       );
+    }
+
+    if (price.meter) {
+      const hasExistingMeteredSubscription = await hasActiveMeteredSubscription(
+        tx,
+        organizationId,
+        input.customer,
+        price.meter
+      );
+
+      if (hasExistingMeteredSubscription) {
+        throw new SubscriptionError(
+          "metered_subscription_conflict",
+          "A customer can have at most one active or past_due subscription for a given meter"
+        );
+      }
     }
 
     const now = new Date();

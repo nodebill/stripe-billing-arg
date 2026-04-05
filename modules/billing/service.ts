@@ -11,6 +11,7 @@ import {
   subscriptionItems,
   subscriptions,
 } from "@/infrastructure/database/schema";
+import { getMeterUsageTotal } from "@/modules/meter-events/service";
 import { addRecurringInterval, toUnix } from "@/modules/shared/time";
 import type {
   BillingProcessorState,
@@ -282,6 +283,20 @@ export async function createRenewalInvoices(runAt: Date) {
 
     const invoiceId = `in_${nanoid()}`;
     const lineItemId = `il_${nanoid()}`;
+    const usagePeriodStart = subscription.currentPeriodStart;
+    const usagePeriodEnd = subscription.currentPeriodEnd;
+    const usageQuantity = price.meter
+      ? await getMeterUsageTotal(
+          subscription.organizationId,
+          price.meter,
+          subscription.customerId,
+          Math.floor(usagePeriodStart.getTime() / 1000),
+          Math.floor(usagePeriodEnd.getTime() / 1000)
+        )
+      : 1;
+    const lineItemAmount = price.unitAmount * usageQuantity;
+    const lineItemPeriodStart = price.meter ? usagePeriodStart : nextPeriodStart;
+    const lineItemPeriodEnd = price.meter ? usagePeriodEnd : nextPeriodEnd;
 
     await db.transaction(async (tx) => {
       await tx.insert(invoices).values({
@@ -292,8 +307,8 @@ export async function createRenewalInvoices(runAt: Date) {
         status: "draft",
         collectionMethod: subscription.collectionMethod,
         currency: price.currency,
-        subtotal: price.unitAmount,
-        amountDue: price.unitAmount,
+        subtotal: lineItemAmount,
+        amountDue: lineItemAmount,
         amountPaid: 0,
         dueDate: null,
         periodStart: nextPeriodStart,
@@ -310,11 +325,11 @@ export async function createRenewalInvoices(runAt: Date) {
         organizationId: subscription.organizationId,
         invoiceId,
         priceId: price.id,
-        quantity: 1,
-        amount: price.unitAmount,
+        quantity: usageQuantity,
+        amount: lineItemAmount,
         currency: price.currency,
-        periodStart: nextPeriodStart,
-        periodEnd: nextPeriodEnd,
+        periodStart: lineItemPeriodStart,
+        periodEnd: lineItemPeriodEnd,
         createdAt: runAt,
         updatedAt: runAt,
       });
@@ -396,10 +411,6 @@ export async function collectOpenInvoices(runAt: Date) {
 
   for (const invoice of openInvoices) {
     if (invoice.collectionMethod === "charge_automatically") {
-      if (invoice.amountPaid >= invoice.amountDue) {
-        continue;
-      }
-
       await db.transaction(async (tx) => {
         await tx
           .update(invoices)

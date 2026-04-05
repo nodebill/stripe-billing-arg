@@ -13,7 +13,8 @@
 - `product: string`
 - `type: "one_time" | "recurring"`
 - `unit_amount: number`
-- `recurring: { interval: "month" | "year"; interval_count: 1 } | null`
+- `recurring: { interval: "month" | "year"; interval_count: 1; usage_type: "licensed" | "metered" } | null`
+- `meter: string | null`
 - `created: number`
 - `updated: number`
 
@@ -23,5 +24,7 @@
 - Prices are created as flat per-unit amounts only.
 - Recurring prices are limited to monthly and yearly intervals.
 - `interval_count` is fixed to `1`.
+- Metered recurring prices reference one active meter at creation time.
+- Licensed recurring prices always return `usage_type="licensed"` and `meter=null`.
 - Prices are archived by setting `active=false`.
 - Amount, currency, product, type, and recurring shape cannot be changed after creation.
