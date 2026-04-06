@@ -1,14 +1,23 @@
 import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   customers,
+  invoiceDeliveries,
+  invoiceLineItems,
+  invoices,
   paymentMethods,
   prices,
   subscriptionItems,
   subscriptions,
 } from "@/infrastructure/database/schema";
-import { addRecurringInterval, toUnix } from "@/modules/shared/time";
+import { multiplyDecimalByFractionAndRound } from "@/modules/shared/fixed-decimal";
+import {
+  addRecurringInterval,
+  resolveBillingCycleAnchorConfig,
+  toUnix,
+} from "@/modules/shared/time";
 import type {
   CreateSubscriptionInput,
   ListSubscriptionsParams,
@@ -21,16 +30,28 @@ import type {
 
 type SubscriptionRow = typeof subscriptions.$inferSelect;
 type SubscriptionItemRow = typeof subscriptionItems.$inferSelect;
+type DbLike = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update">;
+type InitialSubscriptionPeriod = {
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+  initialProrationPeriod: {
+    start: Date;
+    end: Date;
+    basisStart: Date;
+  } | null;
+};
 
 export class SubscriptionError extends Error {
   code:
     | "not_found"
     | "customer_not_found"
+    | "invalid_billing_cycle"
     | "payment_method_not_found"
     | "payment_method_not_attached"
     | "payment_method_customer_mismatch"
     | "default_payment_method_required"
     | "invalid_items"
+    | "invalid_proration_behavior"
     | "invalid_price"
     | "metered_subscription_conflict"
     | "already_canceled";
@@ -167,6 +188,177 @@ function requireDefaultPaymentMethod(
   }
 }
 
+function resolveInitialSubscriptionPeriod(
+  now: Date,
+  interval: "month" | "year",
+  input: CreateSubscriptionInput
+): InitialSubscriptionPeriod {
+  if (input.backdate_start_date) {
+    const start = new Date(input.backdate_start_date * 1000);
+    let currentPeriodStart = start;
+    let currentPeriodEnd = addRecurringInterval(currentPeriodStart, interval);
+
+    while (currentPeriodEnd.getTime() <= now.getTime()) {
+      currentPeriodStart = currentPeriodEnd;
+      currentPeriodEnd = addRecurringInterval(currentPeriodStart, interval);
+    }
+
+    return {
+      currentPeriodStart,
+      currentPeriodEnd,
+      initialProrationPeriod: {
+        start,
+        end: now,
+        basisStart: start,
+      },
+    };
+  }
+
+  if (input.billing_cycle_anchor || input.billing_cycle_anchor_config) {
+    const currentPeriodEnd = input.billing_cycle_anchor
+      ? new Date(input.billing_cycle_anchor * 1000)
+      : resolveBillingCycleAnchorConfig(now, interval, input.billing_cycle_anchor_config!);
+
+    return {
+      currentPeriodStart: now,
+      currentPeriodEnd,
+      initialProrationPeriod: {
+        start: now,
+        end: currentPeriodEnd,
+        basisStart: now,
+      },
+    };
+  }
+
+  return {
+    currentPeriodStart: now,
+    currentPeriodEnd: addRecurringInterval(now, interval),
+    initialProrationPeriod: null,
+  };
+}
+
+function calculateProrationAmount(
+  priceUnitAmountDecimal: string,
+  interval: "month" | "year",
+  prorationPeriod: {
+    start: Date;
+    end: Date;
+    basisStart: Date;
+  }
+) {
+  if (prorationPeriod.end.getTime() <= prorationPeriod.start.getTime()) {
+    return 0;
+  }
+
+  let amount = 0;
+  let cursor = prorationPeriod.basisStart;
+
+  while (cursor.getTime() < prorationPeriod.end.getTime()) {
+    const intervalEnd = addRecurringInterval(cursor, interval);
+    const segmentStart = new Date(
+      Math.max(cursor.getTime(), prorationPeriod.start.getTime())
+    );
+    const segmentEnd = new Date(
+      Math.min(intervalEnd.getTime(), prorationPeriod.end.getTime())
+    );
+
+    if (segmentEnd.getTime() > segmentStart.getTime()) {
+      amount += multiplyDecimalByFractionAndRound(
+        priceUnitAmountDecimal,
+        BigInt(segmentEnd.getTime() - segmentStart.getTime()),
+        BigInt(intervalEnd.getTime() - cursor.getTime())
+      );
+    }
+
+    cursor = intervalEnd;
+  }
+
+  return amount;
+}
+
+async function createImmediateProrationInvoice(
+  tx: DbLike,
+  params: {
+    organizationId: string;
+    customerId: string;
+    customerEmail: string | null;
+    subscriptionId: string;
+    priceId: string;
+    currency: string;
+    collectionMethod: SubscriptionCollectionMethod;
+    prorationAmount: number;
+    periodStart: Date;
+    periodEnd: Date;
+    now: Date;
+  }
+) {
+  const invoiceId = `in_${nanoid()}`;
+  const lineItemId = `il_${nanoid()}`;
+  const dueDate =
+    params.collectionMethod === "send_invoice"
+      ? new Date(params.now.getTime() + SEND_INVOICE_DUE_DAYS * 86400_000)
+      : null;
+
+  await tx.insert(invoices).values({
+    id: invoiceId,
+    organizationId: params.organizationId,
+    customerId: params.customerId,
+    subscriptionId: params.subscriptionId,
+    status:
+      params.collectionMethod === "charge_automatically" ? "paid" : "open",
+    collectionMethod: params.collectionMethod,
+    currency: params.currency,
+    subtotal: params.prorationAmount,
+    amountDue: params.prorationAmount,
+    amountPaid:
+      params.collectionMethod === "charge_automatically"
+        ? params.prorationAmount
+        : 0,
+    dueDate,
+    periodStart: params.periodStart,
+    periodEnd: params.periodEnd,
+    autoAdvance: true,
+    finalizedAt: params.now,
+    paidAt:
+      params.collectionMethod === "charge_automatically" ? params.now : null,
+    createdAt: params.now,
+    updatedAt: params.now,
+  });
+
+  await tx.insert(invoiceLineItems).values({
+    id: lineItemId,
+    organizationId: params.organizationId,
+    invoiceId,
+    priceId: params.priceId,
+    quantity: 1,
+    amount: params.prorationAmount,
+    currency: params.currency,
+    periodStart: params.periodStart,
+    periodEnd: params.periodEnd,
+    createdAt: params.now,
+    updatedAt: params.now,
+  });
+
+  if (params.collectionMethod === "send_invoice") {
+    await tx.insert(invoiceDeliveries).values({
+      id: `idel_${nanoid()}`,
+      organizationId: params.organizationId,
+      invoiceId,
+      channel: "mock_email",
+      status: "sent",
+      recipient: params.customerEmail,
+      payload: {
+        invoice_id: invoiceId,
+        customer_id: params.customerId,
+        subscription_id: params.subscriptionId,
+      },
+      sentAt: params.now,
+      createdAt: params.now,
+      updatedAt: params.now,
+    });
+  }
+}
+
 export async function createSubscription(
   organizationId: string,
   input: CreateSubscriptionInput
@@ -181,12 +373,45 @@ export async function createSubscription(
     );
   }
 
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (input.billing_cycle_anchor && input.billing_cycle_anchor_config) {
+    throw new SubscriptionError(
+      "invalid_billing_cycle",
+      "billing_cycle_anchor and billing_cycle_anchor_config are mutually exclusive"
+    );
+  }
+
+  if (
+    input.backdate_start_date &&
+    (input.billing_cycle_anchor || input.billing_cycle_anchor_config)
+  ) {
+    throw new SubscriptionError(
+      "invalid_billing_cycle",
+      "backdate_start_date cannot be combined with billing_cycle_anchor or billing_cycle_anchor_config in this version"
+    );
+  }
+
+  if (input.billing_cycle_anchor && input.billing_cycle_anchor <= nowSeconds) {
+    throw new SubscriptionError(
+      "invalid_billing_cycle",
+      "billing_cycle_anchor must be a future timestamp"
+    );
+  }
+
+  if (input.backdate_start_date && input.backdate_start_date >= nowSeconds) {
+    throw new SubscriptionError(
+      "invalid_billing_cycle",
+      "backdate_start_date must be a past timestamp"
+    );
+  }
+
   const collectionMethod = input.collection_method ?? "charge_automatically";
+  const prorationBehavior = input.proration_behavior ?? "create_prorations";
   requireDefaultPaymentMethod(collectionMethod, input.default_payment_method);
 
   return db.transaction(async (tx) => {
     const customerRows = await tx
-      .select({ id: customers.id })
+      .select({ id: customers.id, email: customers.email })
       .from(customers)
       .where(
         and(
@@ -258,6 +483,16 @@ export async function createSubscription(
       );
     }
 
+    if (
+      input.billing_cycle_anchor_config?.month &&
+      price.recurringInterval === "month"
+    ) {
+      throw new SubscriptionError(
+        "invalid_billing_cycle",
+        "billing_cycle_anchor_config.month is only supported for yearly prices"
+      );
+    }
+
     if (price.meter) {
       const hasExistingMeteredSubscription = await hasActiveMeteredSubscription(
         tx,
@@ -275,9 +510,35 @@ export async function createSubscription(
     }
 
     const now = new Date();
+    const initialPeriod = resolveInitialSubscriptionPeriod(
+      now,
+      price.recurringInterval,
+      input
+    );
+
+    if (
+      price.meter &&
+      prorationBehavior === "create_prorations" &&
+      initialPeriod.initialProrationPeriod
+    ) {
+      throw new SubscriptionError(
+        "invalid_proration_behavior",
+        "proration_behavior=create_prorations is not supported for metered prices"
+      );
+    }
+
+    if (
+      initialPeriod.currentPeriodEnd.getTime() <=
+      initialPeriod.currentPeriodStart.getTime()
+    ) {
+      throw new SubscriptionError(
+        "invalid_billing_cycle",
+        "The resolved billing cycle must end after it starts"
+      );
+    }
+
     const subscriptionId = `sub_${nanoid()}`;
     const subscriptionItemId = `si_${nanoid()}`;
-    const currentPeriodEnd = addRecurringInterval(now, price.recurringInterval);
 
     const [subscriptionRow] = await tx
       .insert(subscriptions)
@@ -295,8 +556,8 @@ export async function createSubscription(
         canceledAt: null,
         endedAt: null,
         livemode: false,
-        currentPeriodStart: now,
-        currentPeriodEnd,
+        currentPeriodStart: initialPeriod.currentPeriodStart,
+        currentPeriodEnd: initialPeriod.currentPeriodEnd,
         createdAt: now,
         updatedAt: now,
       })
@@ -310,6 +571,31 @@ export async function createSubscription(
       createdAt: now,
       updatedAt: now,
     }).returning();
+
+    if (
+      prorationBehavior === "create_prorations" &&
+      initialPeriod.initialProrationPeriod
+    ) {
+      const prorationAmount = calculateProrationAmount(
+        price.unitAmountDecimal,
+        price.recurringInterval,
+        initialPeriod.initialProrationPeriod
+      );
+
+      await createImmediateProrationInvoice(tx, {
+        organizationId,
+        customerId: input.customer,
+        customerEmail: customerRows[0]?.email ?? null,
+        subscriptionId,
+        priceId: price.id,
+        currency: price.currency,
+        collectionMethod,
+        prorationAmount,
+        periodStart: initialPeriod.initialProrationPeriod.start,
+        periodEnd: initialPeriod.initialProrationPeriod.end,
+        now,
+      });
+    }
 
     return toSubscriptionFromRows(subscriptionRow, [subscriptionItemRow]);
   });

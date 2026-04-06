@@ -24,6 +24,10 @@ Request body:
 - `customer`
 - `collection_method?`
 - `default_payment_method?`
+- `billing_cycle_anchor?`
+- `billing_cycle_anchor_config?`
+- `backdate_start_date?`
+- `proration_behavior?`
 - `items`
 
 Rules:
@@ -34,6 +38,14 @@ Rules:
 - `collection_method` defaults to `charge_automatically`.
 - `default_payment_method` is required only when `collection_method=charge_automatically`.
 - When present, the payment method must already be attached to the same customer.
+- `proration_behavior` defaults to `create_prorations`.
+- `billing_cycle_anchor` and `billing_cycle_anchor_config` are mutually exclusive.
+- `backdate_start_date` cannot be combined with `billing_cycle_anchor` or `billing_cycle_anchor_config` in this version.
+- `billing_cycle_anchor` must be a future timestamp.
+- `backdate_start_date` must be a past timestamp.
+- `billing_cycle_anchor_config` supports `day_of_month` and optional UTC `hour`, `minute`, and `second`; yearly prices may also provide `month`.
+- `proration_behavior=create_prorations` creates an immediate invoice only when the subscription is anchored or backdated.
+- Metered prices only support `proration_behavior=none` when an initial proration would otherwise be required.
 
 ## `GET /api/subscriptions/:id`
 

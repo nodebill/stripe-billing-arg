@@ -29,9 +29,13 @@
 - Subscriptions belong to one customer and one organization.
 - Subscription creation currently supports exactly one item, but persistence allows many items for future expansion.
 - Each subscription item references a recurring price.
+- By default, subscription creation sets `current_period_start` to the creation time and `current_period_end` one billing interval later.
+- `billing_cycle_anchor` and `billing_cycle_anchor_config` keep `current_period_start` at creation time but move `current_period_end` to the aligned renewal boundary.
+- `backdate_start_date` moves the subscription into the active billing period that contains the creation time, even if that period started in the past.
 - A customer can have at most one active or `past_due` subscription for a given meter.
 - `charge_automatically` subscriptions require one attached payment method at creation time.
 - `send_invoice` subscriptions do not require a payment method.
+- Licensed subscriptions can create an immediate proration invoice at creation time when the initial period is anchored or backdated and `proration_behavior=create_prorations`.
 - Reads never advance billing state; renewal processing is handled by the background billing processor.
 - When a due subscription renews, the billing processor creates a draft invoice first, then finalizes and collects it in a later stage.
 - Metered renewals bill the usage recorded during the period that just ended while still advancing the subscription into the next billing period.

@@ -216,6 +216,8 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       return {
         id: price.id,
         label,
+        interval: price.recurring!.interval,
+        usageType: price.recurring!.usage_type,
       };
     });
   const paymentMethodOptions = paymentMethods.map((paymentMethod) => ({
@@ -331,6 +333,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 <TableHead>Status</TableHead>
                 <TableHead>Collection</TableHead>
                 <TableHead>Payment method</TableHead>
+                <TableHead>Period start</TableHead>
                 <TableHead>Period end</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead className="w-[112px]" />
@@ -377,6 +380,9 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {subscription.default_payment_method ?? "--"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(subscription.current_period_start)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(subscription.current_period_end)}
