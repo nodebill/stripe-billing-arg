@@ -58,23 +58,23 @@ async function resetDb() {
 async function createMeteredSubscriptionFixture(
   aggregation: "sum" | "count" = "sum"
 ) {
-  const customer = await createCustomer(ORGANIZATION_ID, {
+  const customer = await createCustomer({
     email: `meter-${Date.now()}@example.com`,
   });
-  const paymentMethod = await createPaymentMethod(ORGANIZATION_ID, {
+  const paymentMethod = await createPaymentMethod({
     type: "custom",
     billing_details: {
       name: "Meter events method",
     },
   });
-  await attachPaymentMethod(ORGANIZATION_ID, paymentMethod.id, {
+  await attachPaymentMethod(paymentMethod.id, {
     customer: customer.id,
   });
 
-  const product = await createProduct(ORGANIZATION_ID, {
+  const product = await createProduct({
     name: `Usage Product ${Date.now()}`,
   });
-  const meter = await createMeter(ORGANIZATION_ID, {
+  const meter = await createMeter({
     display_name: `Usage Meter ${Date.now()}`,
     event_name: `usage_event_${Date.now()}`,
     default_aggregation: { formula: aggregation },
@@ -84,7 +84,7 @@ async function createMeteredSubscriptionFixture(
     throw new Error(meter.error);
   }
 
-  const price = await createPrice(ORGANIZATION_ID, {
+  const price = await createPrice({
     product: product.id,
     currency: "usd",
     unit_amount: 100,
@@ -105,7 +105,7 @@ async function createMeteredSubscriptionFixture(
     );
   }
 
-  await createSubscription(ORGANIZATION_ID, {
+  await createSubscription({
     customer: customer.id,
     default_payment_method: paymentMethod.id,
     items: [{ price: price.id }],
@@ -123,7 +123,7 @@ test("creates meter events idempotently and returns the original record on repla
   const fixture = await createMeteredSubscriptionFixture("sum");
   const timestamp = Math.floor(Date.now() / 1000) - 60;
 
-  const created = await createMeterEvent(ORGANIZATION_ID, {
+  const created = await createMeterEvent({
     event_name: fixture.meter.event_name,
     identifier: "evt_replay_case",
     payload: {
@@ -133,7 +133,7 @@ test("creates meter events idempotently and returns the original record on repla
     timestamp,
   });
 
-  const replayed = await createMeterEvent(ORGANIZATION_ID, {
+  const replayed = await createMeterEvent({
     event_name: fixture.meter.event_name,
     identifier: "evt_replay_case",
     payload: {
@@ -159,7 +159,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
   const dayOne = startTime + 2 * 60 * 60;
   const dayTwo = startTime + 26 * 60 * 60;
 
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: sumFixture.meter.event_name,
     payload: {
       stripe_customer_id: sumFixture.customer.id,
@@ -167,7 +167,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
     },
     timestamp: dayOne,
   });
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: sumFixture.meter.event_name,
     payload: {
       stripe_customer_id: sumFixture.customer.id,
@@ -176,7 +176,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
     timestamp: dayTwo,
   });
 
-  const grouped = await listMeterEventSummaries(ORGANIZATION_ID, sumFixture.meter.id, {
+  const grouped = await listMeterEventSummaries(sumFixture.meter.id, {
     customer: sumFixture.customer.id,
     start_time: startTime,
     end_time: startTime + 3 * 24 * 60 * 60,
@@ -191,7 +191,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
   const countFixture = await createMeteredSubscriptionFixture("count");
   const countStart = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
 
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: countFixture.meter.event_name,
     payload: {
       stripe_customer_id: countFixture.customer.id,
@@ -199,7 +199,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
     },
     timestamp: countStart + 120,
   });
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: countFixture.meter.event_name,
     payload: {
       stripe_customer_id: countFixture.customer.id,
@@ -208,7 +208,7 @@ test("aggregates daily summaries for sum meters and total summaries for count me
     timestamp: countStart + 240,
   });
 
-  const total = await listMeterEventSummaries(ORGANIZATION_ID, countFixture.meter.id, {
+  const total = await listMeterEventSummaries(countFixture.meter.id, {
     customer: countFixture.customer.id,
     start_time: countStart,
     end_time: countStart + 24 * 60 * 60,
@@ -224,7 +224,7 @@ test("rejects events for unknown meters, unknown customers, missing subscription
 
   await assert.rejects(
     () =>
-      createMeterEvent(ORGANIZATION_ID, {
+      createMeterEvent({
         event_name: "missing_event_name",
         payload: {
           stripe_customer_id: fixture.customer.id,
@@ -238,7 +238,7 @@ test("rejects events for unknown meters, unknown customers, missing subscription
 
   await assert.rejects(
     () =>
-      createMeterEvent(ORGANIZATION_ID, {
+      createMeterEvent({
         event_name: fixture.meter.event_name,
         payload: {
           stripe_customer_id: "cus_missing",
@@ -251,10 +251,10 @@ test("rejects events for unknown meters, unknown customers, missing subscription
   );
 
   await resetDb();
-  const customer = await createCustomer(ORGANIZATION_ID, {
+  const customer = await createCustomer({
     email: "no-subscription@example.com",
   });
-  const orphanMeter = await createMeter(ORGANIZATION_ID, {
+  const orphanMeter = await createMeter({
     display_name: "Orphan meter",
     event_name: "orphan_event",
     default_aggregation: { formula: "sum" },
@@ -266,7 +266,7 @@ test("rejects events for unknown meters, unknown customers, missing subscription
 
   await assert.rejects(
     () =>
-      createMeterEvent(ORGANIZATION_ID, {
+      createMeterEvent({
         event_name: orphanMeter.event_name,
         payload: {
           stripe_customer_id: customer.id,
@@ -286,7 +286,6 @@ test("rejects events for unknown meters, unknown customers, missing subscription
 
   await db.insert(subscriptions).values({
     id: duplicateSubscriptionId,
-    organizationId: ORGANIZATION_ID,
     customerId: duplicateFixture.customer.id,
     status: "active",
     collectionMethod: "charge_automatically",
@@ -302,7 +301,6 @@ test("rejects events for unknown meters, unknown customers, missing subscription
   });
   await db.insert(subscriptionItems).values({
     id: `si_${nanoid()}`,
-    organizationId: ORGANIZATION_ID,
     subscriptionId: duplicateSubscriptionId,
     priceId: duplicateFixture.price.id,
     createdAt: now,
@@ -311,7 +309,7 @@ test("rejects events for unknown meters, unknown customers, missing subscription
 
   await assert.rejects(
     () =>
-      createMeterEvent(ORGANIZATION_ID, {
+      createMeterEvent({
         event_name: duplicateFixture.meter.event_name,
         payload: {
           stripe_customer_id: duplicateFixture.customer.id,

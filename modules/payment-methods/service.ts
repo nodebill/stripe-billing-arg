@@ -51,26 +51,19 @@ function toPaymentMethod(row: PaymentMethodRow): PaymentMethod {
 }
 
 async function findPaymentMethodRow(
-  organizationId: string,
   paymentMethodId: string
 ): Promise<PaymentMethodRow | null> {
   const db = getDb();
   const rows = await db
     .select()
     .from(paymentMethods)
-    .where(
-      and(
-        eq(paymentMethods.id, paymentMethodId),
-        eq(paymentMethods.organizationId, organizationId)
-      )
-    )
+    .where(eq(paymentMethods.id, paymentMethodId))
     .limit(1);
 
   return rows[0] ?? null;
 }
 
 export async function createPaymentMethod(
-  organizationId: string,
   input: CreatePaymentMethodInput
 ): Promise<PaymentMethod> {
   await ensureTables();
@@ -82,7 +75,6 @@ export async function createPaymentMethod(
     .insert(paymentMethods)
     .values({
       id,
-      organizationId,
       customerId: null,
       type: "custom",
       customType: DEFAULT_CUSTOM_PAYMENT_METHOD_TYPE,
@@ -98,23 +90,21 @@ export async function createPaymentMethod(
 }
 
 export async function getPaymentMethod(
-  organizationId: string,
   paymentMethodId: string
 ): Promise<PaymentMethod | null> {
   await ensureTables();
-  const row = await findPaymentMethodRow(organizationId, paymentMethodId);
+  const row = await findPaymentMethodRow(paymentMethodId);
   return row ? toPaymentMethod(row) : null;
 }
 
 export async function updatePaymentMethod(
-  organizationId: string,
   paymentMethodId: string,
   input: UpdatePaymentMethodInput
 ): Promise<PaymentMethod> {
   await ensureTables();
   const db = getDb();
 
-  const existing = await findPaymentMethodRow(organizationId, paymentMethodId);
+  const existing = await findPaymentMethodRow(paymentMethodId);
   if (!existing) {
     throw new PaymentMethodError(
       "not_found",
@@ -135,19 +125,13 @@ export async function updatePaymentMethod(
       billingName: input.billing_details.name ?? null,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(paymentMethods.id, paymentMethodId),
-        eq(paymentMethods.organizationId, organizationId)
-      )
-    )
+    .where(eq(paymentMethods.id, paymentMethodId))
     .returning();
 
   return toPaymentMethod(row);
 }
 
 export async function attachPaymentMethod(
-  organizationId: string,
   paymentMethodId: string,
   input: AttachPaymentMethodInput
 ): Promise<PaymentMethod> {
@@ -158,12 +142,7 @@ export async function attachPaymentMethod(
     const paymentMethodRows = await tx
       .select()
       .from(paymentMethods)
-      .where(
-        and(
-          eq(paymentMethods.id, paymentMethodId),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, paymentMethodId))
       .limit(1);
 
     const existing = paymentMethodRows[0];
@@ -191,12 +170,7 @@ export async function attachPaymentMethod(
     const customerRows = await tx
       .select({ id: customers.id })
       .from(customers)
-      .where(
-        and(
-          eq(customers.id, input.customer),
-          eq(customers.organizationId, organizationId)
-        )
-      )
+      .where(eq(customers.id, input.customer))
       .limit(1);
 
     if (customerRows.length === 0) {
@@ -212,12 +186,7 @@ export async function attachPaymentMethod(
         customerId: input.customer,
         updatedAt: new Date(),
       })
-      .where(
-        and(
-          eq(paymentMethods.id, paymentMethodId),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, paymentMethodId))
       .returning();
 
     return toPaymentMethod(row);
@@ -225,7 +194,6 @@ export async function attachPaymentMethod(
 }
 
 export async function detachPaymentMethod(
-  organizationId: string,
   paymentMethodId: string
 ): Promise<PaymentMethod> {
   await ensureTables();
@@ -235,12 +203,7 @@ export async function detachPaymentMethod(
     const paymentMethodRows = await tx
       .select()
       .from(paymentMethods)
-      .where(
-        and(
-          eq(paymentMethods.id, paymentMethodId),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, paymentMethodId))
       .limit(1);
 
     const existing = paymentMethodRows[0];
@@ -278,7 +241,6 @@ export async function detachPaymentMethod(
       })
       .where(
         and(
-          eq(subscriptions.organizationId, organizationId),
           eq(subscriptions.defaultPaymentMethodId, paymentMethodId),
           inArray(subscriptions.status, ["active", "past_due"])
         )
@@ -291,12 +253,7 @@ export async function detachPaymentMethod(
         detachedAt: now,
         updatedAt: now,
       })
-      .where(
-        and(
-          eq(paymentMethods.id, paymentMethodId),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, paymentMethodId))
       .returning();
 
     return toPaymentMethod(row);
@@ -304,7 +261,6 @@ export async function detachPaymentMethod(
 }
 
 export async function listCustomerPaymentMethods(
-  organizationId: string,
   customerId: string,
   params: ListCustomerPaymentMethodsParams
 ): Promise<StripePaymentMethodList> {
@@ -312,21 +268,13 @@ export async function listCustomerPaymentMethods(
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [
-    eq(paymentMethods.organizationId, organizationId),
-    eq(paymentMethods.customerId, customerId),
-  ];
+  const conditions = [eq(paymentMethods.customerId, customerId)];
 
   if (params.starting_after) {
     const cursor = await db
       .select({ createdAt: paymentMethods.createdAt })
       .from(paymentMethods)
-      .where(
-        and(
-          eq(paymentMethods.id, params.starting_after),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, params.starting_after))
       .limit(1);
 
     if (cursor.length > 0) {
@@ -338,12 +286,7 @@ export async function listCustomerPaymentMethods(
     const cursor = await db
       .select({ createdAt: paymentMethods.createdAt })
       .from(paymentMethods)
-      .where(
-        and(
-          eq(paymentMethods.id, params.ending_before),
-          eq(paymentMethods.organizationId, organizationId)
-        )
-      )
+      .where(eq(paymentMethods.id, params.ending_before))
       .limit(1);
 
     if (cursor.length > 0) {

@@ -1,5 +1,7 @@
 # Prices API
 
+> Authentication: all endpoints in this module require an authenticated user session or an authorized machine credential.
+
 ## `GET /api/prices`
 
 Returns a paginated Stripe-style list of prices for a product.

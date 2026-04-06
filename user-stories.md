@@ -1,5 +1,13 @@
 # User Stories
 
+## Authentication and access
+
+- As a deployer, I can bootstrap the first admin exactly once from a public setup page.
+- As a team member, I can sign in with my personal email and password before accessing the UI or API.
+- As an admin, I can invite teammates with a shareable one-time link instead of opening public sign-up.
+- As an admin, I can manage team roles, suspend access, and set a temporary password for a teammate.
+- As an admin, I can create machine API keys for server-to-server automation.
+
 ## Catalog management
 
 - As an operator, I can create a product with a name, description, and active status.

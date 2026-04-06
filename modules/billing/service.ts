@@ -181,12 +181,7 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
     const itemRows = await db
       .select()
       .from(subscriptionItems)
-      .where(
-        and(
-          eq(subscriptionItems.organizationId, row.organizationId),
-          eq(subscriptionItems.subscriptionId, row.id)
-        )
-      )
+      .where(eq(subscriptionItems.subscriptionId, row.id))
       .orderBy(asc(subscriptionItems.createdAt), asc(subscriptionItems.id))
       .limit(1);
 
@@ -198,12 +193,7 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
     const priceRows = await db
       .select()
       .from(prices)
-      .where(
-        and(
-          eq(prices.organizationId, row.organizationId),
-          eq(prices.id, item.priceId)
-        )
-      )
+      .where(eq(prices.id, item.priceId))
       .limit(1);
 
     const price = priceRows[0];
@@ -214,12 +204,7 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
     const customerRows = await db
       .select({ email: customers.email })
       .from(customers)
-      .where(
-        and(
-          eq(customers.organizationId, row.organizationId),
-          eq(customers.id, row.customerId)
-        )
-      )
+      .where(eq(customers.id, row.customerId))
       .limit(1);
 
     loaded.push({
@@ -270,7 +255,6 @@ export async function createRenewalInvoices(runAt: Date) {
       .from(invoices)
       .where(
         and(
-          eq(invoices.organizationId, subscription.organizationId),
           eq(invoices.subscriptionId, subscription.id),
           eq(invoices.periodStart, nextPeriodStart),
           eq(invoices.periodEnd, nextPeriodEnd)
@@ -287,9 +271,7 @@ export async function createRenewalInvoices(runAt: Date) {
     const usagePeriodStart = subscription.currentPeriodStart;
     const usagePeriodEnd = subscription.currentPeriodEnd;
     const usageQuantity = price.meter
-      ? await getMeterUsageTotal(
-          subscription.organizationId,
-          price.meter,
+      ? await getMeterUsageTotal(price.meter,
           subscription.customerId,
           Math.floor(usagePeriodStart.getTime() / 1000),
           Math.floor(usagePeriodEnd.getTime() / 1000)
@@ -305,7 +287,6 @@ export async function createRenewalInvoices(runAt: Date) {
     await db.transaction(async (tx) => {
       await tx.insert(invoices).values({
         id: invoiceId,
-        organizationId: subscription.organizationId,
         customerId: subscription.customerId,
         subscriptionId: subscription.id,
         status: "draft",
@@ -326,7 +307,6 @@ export async function createRenewalInvoices(runAt: Date) {
 
       await tx.insert(invoiceLineItems).values({
         id: lineItemId,
-        organizationId: subscription.organizationId,
         invoiceId,
         priceId: price.id,
         quantity: usageQuantity,
@@ -448,18 +428,12 @@ export async function collectOpenInvoices(runAt: Date) {
     const customerRows = await db
       .select({ email: customers.email })
       .from(customers)
-      .where(
-        and(
-          eq(customers.organizationId, invoice.organizationId),
-          eq(customers.id, invoice.customerId)
-        )
-      )
+      .where(eq(customers.id, invoice.customerId))
       .limit(1);
 
     await db.transaction(async (tx) => {
       await tx.insert(invoiceDeliveries).values({
         id: `idel_${nanoid()}`,
-        organizationId: invoice.organizationId,
         invoiceId: invoice.id,
         channel: "mock_email",
         status: "sent",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { createPrice, listPrices } from "@/modules/prices/service";
 import {
@@ -8,7 +8,10 @@ import {
 } from "@/modules/prices/validation";
 
 export async function POST(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
 
   let body: unknown;
   try {
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const result = await createPrice(session.organizationId, parsed.data);
+  const result = await createPrice(parsed.data);
   if (!result) {
     return apiError(404, `No such product: '${parsed.data.product}'`);
   }
@@ -34,7 +37,10 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { searchParams } = new URL(request.url);
   const raw = Object.fromEntries(searchParams.entries());
 
@@ -43,6 +49,6 @@ export async function GET(request: Request) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const list = await listPrices(session.organizationId, parsed.data);
+  const list = await listPrices(parsed.data);
   return NextResponse.json(list);
 }

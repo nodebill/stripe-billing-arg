@@ -6,7 +6,7 @@ import { ArrowLeft, ReceiptText, Repeat, WalletCards } from "lucide-react";
 import {
   formatPriceAmount,
   formatPriceType,
-} from "@/app/products/[id]/_components/price-format";
+} from "@/app/(protected)/products/[id]/_components/price-format";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,

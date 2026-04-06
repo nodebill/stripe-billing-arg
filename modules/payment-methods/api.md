@@ -1,5 +1,7 @@
 # Payment Methods API
 
+> Authentication: all endpoints in this module require an authenticated user session or an authorized machine credential.
+
 ## `POST /api/payment_methods`
 
 Creates a payment method.

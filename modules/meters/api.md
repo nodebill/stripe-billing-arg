@@ -1,5 +1,7 @@
 # Meters API
 
+> Authentication: all endpoints in this module require an authenticated user session or an authorized machine credential.
+
 ## `GET /api/billing/meters`
 
 Returns a paginated Stripe-style list of meters.

@@ -27,7 +27,6 @@ function toProduct(row: typeof products.$inferSelect): Product {
 }
 
 export async function createProduct(
-  organizationId: string,
   input: CreateProductInput
 ): Promise<Product> {
   await ensureTables();
@@ -40,7 +39,6 @@ export async function createProduct(
     .insert(products)
     .values({
       id,
-      organizationId,
       name: input.name,
       active: input.active ?? true,
       defaultPriceId: null,
@@ -56,7 +54,6 @@ export async function createProduct(
 }
 
 export async function updateProduct(
-  organizationId: string,
   productId: string,
   input: UpdateProductInput
 ): Promise<Product | null> {
@@ -81,7 +78,6 @@ export async function updateProduct(
         .where(
           and(
             eq(prices.id, input.default_price),
-            eq(prices.organizationId, organizationId),
             eq(prices.productId, productId),
             eq(prices.active, true)
           )
@@ -100,9 +96,7 @@ export async function updateProduct(
     const result = await tx
       .update(products)
       .set(values)
-      .where(
-        and(eq(products.id, productId), eq(products.organizationId, organizationId))
-      )
+      .where(eq(products.id, productId))
       .returning();
 
     if (result.length === 0) return result;
@@ -111,12 +105,7 @@ export async function updateProduct(
       await tx
         .update(prices)
         .set({ active: false, updatedAt: new Date() })
-        .where(
-          and(
-            eq(prices.organizationId, organizationId),
-            eq(prices.productId, productId)
-          )
-        );
+        .where(eq(prices.productId, productId));
     }
 
     return result;
@@ -127,7 +116,6 @@ export async function updateProduct(
 }
 
 export async function deleteProduct(
-  organizationId: string,
   productId: string
 ): Promise<DeletedProduct | "has_prices" | null> {
   await ensureTables();
@@ -136,9 +124,7 @@ export async function deleteProduct(
   const priceRows = await db
     .select({ id: prices.id })
     .from(prices)
-    .where(
-      and(eq(prices.organizationId, organizationId), eq(prices.productId, productId))
-    )
+    .where(eq(prices.productId, productId))
     .limit(1);
 
   if (priceRows.length > 0) {
@@ -147,9 +133,7 @@ export async function deleteProduct(
 
   const rows = await db
     .delete(products)
-    .where(
-      and(eq(products.id, productId), eq(products.organizationId, organizationId))
-    )
+    .where(eq(products.id, productId))
     .returning();
 
   if (rows.length === 0) return null;
@@ -157,7 +141,6 @@ export async function deleteProduct(
 }
 
 export async function getProduct(
-  organizationId: string,
   productId: string
 ): Promise<Product | null> {
   await ensureTables();
@@ -166,9 +149,7 @@ export async function getProduct(
   const rows = await db
     .select()
     .from(products)
-    .where(
-      and(eq(products.id, productId), eq(products.organizationId, organizationId))
-    )
+    .where(eq(products.id, productId))
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -176,14 +157,13 @@ export async function getProduct(
 }
 
 export async function listProducts(
-  organizationId: string,
   params: ListProductsParams
 ): Promise<StripeList<Product>> {
   await ensureTables();
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [eq(products.organizationId, organizationId)];
+  const conditions = [];
 
   if (params.active !== undefined) {
     conditions.push(eq(products.active, params.active));

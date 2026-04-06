@@ -1,15 +1,34 @@
-type Session = {
-  user: { id: string };
-  organizationId: string;
-};
-
-export async function getSession(request: Request): Promise<Session> {
-  void request;
-
-  // Stub for local development.
-  // Replace with real better-auth integration later.
-  return {
-    user: { id: "user_dev" },
-    organizationId: "org_dev",
-  };
-}
+export { auth, MACHINE_API_KEY_CONFIG_ID } from "./auth";
+export { authClient } from "./client";
+export {
+  AuthError,
+  getServerPrincipal,
+  getServerSession,
+  requireApiSession,
+  requireAdmin,
+  requireServerAdmin,
+  requireServerSession,
+  requireUser,
+  resolveApiPrincipal,
+} from "./guards";
+export type { ApiPrincipal, AuthSession, AuthUser } from "./types";
+export {
+  createInviteToken,
+  getBootstrapSignUpHeader,
+  getBootstrapSignUpValue,
+  getInviteTokenHeader,
+  getValidInviteByToken,
+  hashInviteToken,
+  hasAnyAuthUsers,
+} from "./sign-up-policy";
+export {
+  acceptInvite,
+  bootstrapFirstAdmin,
+  createMachineApiKey,
+  createTeamInvite,
+  deleteMachineApiKey,
+  listMachineApiKeys,
+  listPendingInvites,
+  listTeamMembers,
+  revokeTeamInvite,
+} from "./team";

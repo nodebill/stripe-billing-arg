@@ -29,6 +29,13 @@
       "when": 1775422542031,
       "tag": "0003_wandering_pet_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775440139460,
+      "tag": "0004_giant_hiroim",
+      "breakpoints": true
     }
   ]
 }

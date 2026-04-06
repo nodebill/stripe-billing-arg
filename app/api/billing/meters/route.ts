@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { createMeter, listMeters } from "@/modules/meters/service";
 import {
@@ -8,7 +8,10 @@ import {
 } from "@/modules/meters/validation";
 
 export async function POST(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
 
   let body: unknown;
   try {
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const result = await createMeter(session.organizationId, parsed.data);
+  const result = await createMeter(parsed.data);
   if ("error" in result) {
     return apiError(400, result.error);
   }
@@ -31,7 +34,10 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { searchParams } = new URL(request.url);
   const raw = Object.fromEntries(searchParams.entries());
 
@@ -40,6 +46,6 @@ export async function GET(request: Request) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const list = await listMeters(session.organizationId, parsed.data);
+  const list = await listMeters(parsed.data);
   return NextResponse.json(list);
 }

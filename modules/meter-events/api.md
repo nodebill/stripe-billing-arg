@@ -1,5 +1,7 @@
 # Meter Events API
 
+> Authentication: all endpoints in this module require an authenticated user session or an authorized machine credential.
+
 ## `POST /api/billing/meter_events`
 
 Creates a metered usage event for an existing active meter.

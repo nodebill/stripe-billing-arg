@@ -25,7 +25,6 @@ function toMeter(row: typeof meters.$inferSelect): Meter {
 }
 
 export async function createMeter(
-  organizationId: string,
   input: CreateMeterInput
 ): Promise<Meter | { error: string }> {
   await ensureTables();
@@ -34,12 +33,7 @@ export async function createMeter(
   const existing = await db
     .select({ id: meters.id })
     .from(meters)
-    .where(
-      and(
-        eq(meters.organizationId, organizationId),
-        eq(meters.eventName, input.event_name)
-      )
-    )
+    .where(eq(meters.eventName, input.event_name))
     .limit(1);
 
   if (existing.length > 0) {
@@ -53,7 +47,6 @@ export async function createMeter(
     .insert(meters)
     .values({
       id,
-      organizationId,
       displayName: input.display_name,
       eventName: input.event_name,
       defaultAggregation: input.default_aggregation.formula,
@@ -68,7 +61,6 @@ export async function createMeter(
 }
 
 export async function getMeter(
-  organizationId: string,
   meterId: string
 ): Promise<Meter | null> {
   await ensureTables();
@@ -77,7 +69,7 @@ export async function getMeter(
   const rows = await db
     .select()
     .from(meters)
-    .where(and(eq(meters.id, meterId), eq(meters.organizationId, organizationId)))
+    .where(eq(meters.id, meterId))
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -85,7 +77,6 @@ export async function getMeter(
 }
 
 export async function updateMeter(
-  organizationId: string,
   meterId: string,
   input: UpdateMeterInput
 ): Promise<Meter | null> {
@@ -95,7 +86,7 @@ export async function updateMeter(
   const rows = await db
     .update(meters)
     .set({ displayName: input.display_name, updatedAt: new Date() })
-    .where(and(eq(meters.id, meterId), eq(meters.organizationId, organizationId)))
+    .where(eq(meters.id, meterId))
     .returning();
 
   if (rows.length === 0) return null;
@@ -103,7 +94,6 @@ export async function updateMeter(
 }
 
 export async function deactivateMeter(
-  organizationId: string,
   meterId: string
 ): Promise<Meter | null> {
   await ensureTables();
@@ -115,7 +105,6 @@ export async function deactivateMeter(
     .where(
       and(
         eq(meters.id, meterId),
-        eq(meters.organizationId, organizationId),
         eq(meters.status, "active")
       )
     )
@@ -126,14 +115,13 @@ export async function deactivateMeter(
 }
 
 export async function listMeters(
-  organizationId: string,
   params: ListMetersParams
 ): Promise<StripeMeterList> {
   await ensureTables();
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [eq(meters.organizationId, organizationId)];
+  const conditions = [];
 
   if (params.status !== undefined) {
     conditions.push(eq(meters.status, params.status));

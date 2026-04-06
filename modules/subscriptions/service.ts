@@ -50,19 +50,13 @@ function toSubscriptionItem(row: SubscriptionItemRow): SubscriptionItem {
 }
 
 async function listSubscriptionItems(
-  organizationId: string,
   subscriptionId: string
 ): Promise<SubscriptionItemRow[]> {
   const db = getDb();
   return db
     .select()
     .from(subscriptionItems)
-    .where(
-      and(
-        eq(subscriptionItems.organizationId, organizationId),
-        eq(subscriptionItems.subscriptionId, subscriptionId)
-      )
-    )
+    .where(eq(subscriptionItems.subscriptionId, subscriptionId))
     .orderBy(desc(subscriptionItems.createdAt), desc(subscriptionItems.id));
 }
 
@@ -90,27 +84,20 @@ function toSubscriptionFromRows(
 }
 
 async function toSubscription(
-  organizationId: string,
   row: SubscriptionRow
 ): Promise<Subscription> {
-  const itemRows = await listSubscriptionItems(organizationId, row.id);
+  const itemRows = await listSubscriptionItems(row.id);
   return toSubscriptionFromRows(row, itemRows);
 }
 
 async function getSubscriptionRow(
-  organizationId: string,
   subscriptionId: string
 ): Promise<SubscriptionRow | null> {
   const db = getDb();
   const rows = await db
     .select()
     .from(subscriptions)
-    .where(
-      and(
-        eq(subscriptions.organizationId, organizationId),
-        eq(subscriptions.id, subscriptionId)
-      )
-    )
+    .where(eq(subscriptions.id, subscriptionId))
     .limit(1);
 
   return rows[0] ?? null;
@@ -118,7 +105,6 @@ async function getSubscriptionRow(
 
 async function hasActiveMeteredSubscription(
   tx: Pick<ReturnType<typeof getDb>, "select">,
-  organizationId: string,
   customerId: string,
   meterId: string
 ) {
@@ -127,21 +113,14 @@ async function hasActiveMeteredSubscription(
     .from(subscriptions)
     .innerJoin(
       subscriptionItems,
-      and(
-        eq(subscriptionItems.organizationId, subscriptions.organizationId),
-        eq(subscriptionItems.subscriptionId, subscriptions.id)
-      )
+      eq(subscriptionItems.subscriptionId, subscriptions.id)
     )
     .innerJoin(
       prices,
-      and(
-        eq(prices.organizationId, subscriptionItems.organizationId),
-        eq(prices.id, subscriptionItems.priceId)
-      )
+      eq(prices.id, subscriptionItems.priceId)
     )
     .where(
       and(
-        eq(subscriptions.organizationId, organizationId),
         eq(subscriptions.customerId, customerId),
         inArray(subscriptions.status, ["active", "past_due"]),
         eq(prices.meter, meterId)
@@ -168,7 +147,6 @@ function requireDefaultPaymentMethod(
 }
 
 export async function createSubscription(
-  organizationId: string,
   input: CreateSubscriptionInput
 ): Promise<Subscription> {
   await ensureTables();
@@ -188,12 +166,7 @@ export async function createSubscription(
     const customerRows = await tx
       .select({ id: customers.id })
       .from(customers)
-      .where(
-        and(
-          eq(customers.organizationId, organizationId),
-          eq(customers.id, input.customer)
-        )
-      )
+      .where(eq(customers.id, input.customer))
       .limit(1);
 
     if (customerRows.length === 0) {
@@ -207,12 +180,7 @@ export async function createSubscription(
       const paymentMethodRows = await tx
         .select()
         .from(paymentMethods)
-        .where(
-          and(
-            eq(paymentMethods.organizationId, organizationId),
-            eq(paymentMethods.id, input.default_payment_method!)
-          )
-        )
+        .where(eq(paymentMethods.id, input.default_payment_method!))
         .limit(1);
 
       const paymentMethod = paymentMethodRows[0];
@@ -242,7 +210,7 @@ export async function createSubscription(
     const priceRows = await tx
       .select()
       .from(prices)
-      .where(and(eq(prices.organizationId, organizationId), eq(prices.id, priceId)))
+      .where(eq(prices.id, priceId))
       .limit(1);
 
     const price = priceRows[0];
@@ -261,7 +229,6 @@ export async function createSubscription(
     if (price.meter) {
       const hasExistingMeteredSubscription = await hasActiveMeteredSubscription(
         tx,
-        organizationId,
         input.customer,
         price.meter
       );
@@ -283,7 +250,6 @@ export async function createSubscription(
       .insert(subscriptions)
       .values({
         id: subscriptionId,
-        organizationId,
         customerId: input.customer,
         status: "active",
         collectionMethod,
@@ -304,7 +270,6 @@ export async function createSubscription(
 
     const [subscriptionItemRow] = await tx.insert(subscriptionItems).values({
       id: subscriptionItemId,
-      organizationId,
       subscriptionId,
       priceId: price.id,
       createdAt: now,
@@ -316,23 +281,21 @@ export async function createSubscription(
 }
 
 export async function getSubscription(
-  organizationId: string,
   subscriptionId: string
 ): Promise<Subscription | null> {
   await ensureTables();
-  const row = await getSubscriptionRow(organizationId, subscriptionId);
-  return row ? toSubscription(organizationId, row) : null;
+  const row = await getSubscriptionRow(subscriptionId);
+  return row ? toSubscription(row) : null;
 }
 
 export async function updateSubscription(
-  organizationId: string,
   subscriptionId: string,
   input: UpdateSubscriptionInput
 ): Promise<Subscription> {
   await ensureTables();
   const db = getDb();
 
-  const row = await getSubscriptionRow(organizationId, subscriptionId);
+  const row = await getSubscriptionRow(subscriptionId);
   if (!row) {
     throw new SubscriptionError(
       "not_found",
@@ -356,17 +319,16 @@ export async function updateSubscription(
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
 
-  return toSubscription(organizationId, updated);
+  return toSubscription(updated);
 }
 
 export async function cancelSubscription(
-  organizationId: string,
   subscriptionId: string
 ): Promise<Subscription> {
   await ensureTables();
   const db = getDb();
 
-  const row = await getSubscriptionRow(organizationId, subscriptionId);
+  const row = await getSubscriptionRow(subscriptionId);
   if (!row) {
     throw new SubscriptionError(
       "not_found",
@@ -394,21 +356,17 @@ export async function cancelSubscription(
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
 
-  return toSubscription(organizationId, updated);
+  return toSubscription(updated);
 }
 
 export async function listSubscriptions(
-  organizationId: string,
   params: ListSubscriptionsParams
 ): Promise<StripeSubscriptionList> {
   await ensureTables();
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [
-    eq(subscriptions.organizationId, organizationId),
-    eq(subscriptions.customerId, params.customer),
-  ];
+  const conditions = [eq(subscriptions.customerId, params.customer)];
 
   if (params.status) {
     conditions.push(eq(subscriptions.status, params.status));
@@ -418,12 +376,7 @@ export async function listSubscriptions(
     const cursor = await db
       .select({ createdAt: subscriptions.createdAt })
       .from(subscriptions)
-      .where(
-        and(
-          eq(subscriptions.organizationId, organizationId),
-          eq(subscriptions.id, params.starting_after)
-        )
-      )
+      .where(eq(subscriptions.id, params.starting_after))
       .limit(1);
 
     if (cursor.length > 0) {
@@ -435,12 +388,7 @@ export async function listSubscriptions(
     const cursor = await db
       .select({ createdAt: subscriptions.createdAt })
       .from(subscriptions)
-      .where(
-        and(
-          eq(subscriptions.organizationId, organizationId),
-          eq(subscriptions.id, params.ending_before)
-        )
-      )
+      .where(eq(subscriptions.id, params.ending_before))
       .limit(1);
 
     if (cursor.length > 0) {
@@ -461,7 +409,7 @@ export async function listSubscriptions(
 
   const hasMore = rows.length > limit;
   const data = await Promise.all(
-    rows.slice(0, limit).map((row) => toSubscription(organizationId, row))
+    rows.slice(0, limit).map((row) => toSubscription(row))
   );
 
   return {
@@ -473,7 +421,6 @@ export async function listSubscriptions(
 }
 
 export async function listNonCanceledCustomerSubscriptionIds(
-  organizationId: string,
   customerId: string
 ) {
   await ensureTables();
@@ -484,7 +431,6 @@ export async function listNonCanceledCustomerSubscriptionIds(
     .from(subscriptions)
     .where(
       and(
-        eq(subscriptions.organizationId, organizationId),
         eq(subscriptions.customerId, customerId),
         inArray(subscriptions.status, ["active", "past_due"])
       )

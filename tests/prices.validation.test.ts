@@ -15,17 +15,18 @@ const recurringBase = {
 };
 
 test("accepts decimal metered prices and normalizes recurring defaults", () => {
-  const parsed = createPriceSchema.safeParse({
+  const parsed = createPriceSchema.parse({
     ...recurringBase,
     unit_amount_decimal: "0.01",
   });
 
-  assert.equal(parsed.success, true);
-  if (!parsed.success) return;
-
-  assert.equal(parsed.data.unit_amount_decimal, "0.01");
-  assert.equal(parsed.data.recurring.interval_count, 1);
-  assert.equal(parsed.data.recurring.usage_type, "metered");
+  assert.equal(parsed.unit_amount_decimal, "0.01");
+  assert.equal(parsed.type, "recurring");
+  if (parsed.type !== "recurring") {
+    throw new Error("Expected recurring price");
+  }
+  assert.equal(parsed.recurring.interval_count, 1);
+  assert.equal(parsed.recurring.usage_type, "metered");
 });
 
 test("rejects prices that provide both unit_amount and unit_amount_decimal", () => {

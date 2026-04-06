@@ -67,23 +67,23 @@ async function resetDb() {
 }
 
 async function createRecurringFixture() {
-  const customer = await createCustomer(ORGANIZATION_ID, {
+  const customer = await createCustomer({
     email: `customer-${Date.now()}@example.com`,
   });
-  const paymentMethod = await createPaymentMethod(ORGANIZATION_ID, {
+  const paymentMethod = await createPaymentMethod({
     type: "custom",
     billing_details: {
       name: "Primary method",
     },
   });
-  await attachPaymentMethod(ORGANIZATION_ID, paymentMethod.id, {
+  await attachPaymentMethod(paymentMethod.id, {
     customer: customer.id,
   });
 
-  const product = await createProduct(ORGANIZATION_ID, {
+  const product = await createProduct({
     name: `Pro ${Date.now()}`,
   });
-  const price = await createPrice(ORGANIZATION_ID, {
+  const price = await createPrice({
     product: product.id,
     currency: "usd",
     unit_amount: 2500,
@@ -91,10 +91,11 @@ async function createRecurringFixture() {
     recurring: {
       interval: "month",
       interval_count: 1,
+      usage_type: "licensed",
     },
   });
 
-  if (!price) {
+  if (!price || "error" in price) {
     throw new Error("Expected recurring price fixture to be created");
   }
 
@@ -121,7 +122,7 @@ async function createMeteredFixture(
   }
 ) {
   const base = await createRecurringFixture();
-  const meter = await createMeter(ORGANIZATION_ID, {
+  const meter = await createMeter({
     display_name: `Meter ${Date.now()}`,
     event_name: `meter_event_${Date.now()}`,
     default_aggregation: { formula: aggregation },
@@ -131,7 +132,7 @@ async function createMeteredFixture(
     throw new Error(meter.error);
   }
 
-  const price = await createPrice(ORGANIZATION_ID, {
+  const price = await createPrice({
     product: base.product.id,
     currency: "usd",
     ...amount,
@@ -191,7 +192,7 @@ test("creates subscriptions with either auto-charge or send-invoice collection m
   await resetDb();
   const fixture = await createRecurringFixture();
 
-  const auto = await createSubscription(ORGANIZATION_ID, {
+  const auto = await createSubscription({
     customer: fixture.customer.id,
     collection_method: "charge_automatically",
     default_payment_method: fixture.paymentMethod.id,
@@ -201,7 +202,7 @@ test("creates subscriptions with either auto-charge or send-invoice collection m
   assert.equal(auto.collection_method, "charge_automatically");
   assert.equal(auto.default_payment_method, fixture.paymentMethod.id);
 
-  const manual = await createSubscription(ORGANIZATION_ID, {
+  const manual = await createSubscription({
     customer: fixture.customer.id,
     collection_method: "send_invoice",
     items: [{ price: fixture.price.id }],
@@ -225,7 +226,7 @@ test("rejects auto-charge subscriptions without a default payment method", async
 
   await assert.rejects(
     () =>
-      createSubscription(ORGANIZATION_ID, {
+      createSubscription({
         customer: fixture.customer.id,
         collection_method: "charge_automatically",
         items: [{ price: fixture.price.id }],
@@ -241,18 +242,18 @@ test("lists subscriptions only for the requested customer", async () => {
   const first = await createRecurringFixture();
   const second = await createRecurringFixture();
 
-  const firstSubscription = await createSubscription(ORGANIZATION_ID, {
+  const firstSubscription = await createSubscription({
     customer: first.customer.id,
     default_payment_method: first.paymentMethod.id,
     items: [{ price: first.price.id }],
   });
-  await createSubscription(ORGANIZATION_ID, {
+  await createSubscription({
     customer: second.customer.id,
     default_payment_method: second.paymentMethod.id,
     items: [{ price: second.price.id }],
   });
 
-  const list = await listSubscriptions(ORGANIZATION_ID, {
+  const list = await listSubscriptions({
     customer: first.customer.id,
     limit: 10,
   });
@@ -265,14 +266,14 @@ test("subscription reads do not mutate overdue billing state", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
 
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
 
   const { pastStart, pastEnd } = await expireSubscription(subscription.id, 40);
-  const reloaded = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const reloaded = await getSubscription(subscription.id);
 
   assert.ok(reloaded);
   assert.equal(reloaded.current_period_start, Math.floor(pastStart.getTime() / 1000));
@@ -283,15 +284,15 @@ test("existing subscriptions keep working after their price is archived", async 
   await resetDb();
   const fixture = await createRecurringFixture();
 
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
 
-  await updatePrice(ORGANIZATION_ID, fixture.price.id, { active: false });
+  await updatePrice(fixture.price.id, { active: false });
 
-  const reloaded = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const reloaded = await getSubscription(subscription.id);
   assert.ok(reloaded);
   assert.equal(reloaded.status, "active");
 });
@@ -300,7 +301,7 @@ test("blocks duplicate active or past_due metered subscriptions for the same cus
   await resetDb();
   const fixture = await createMeteredFixture();
 
-  await createSubscription(ORGANIZATION_ID, {
+  await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -308,7 +309,7 @@ test("blocks duplicate active or past_due metered subscriptions for the same cus
 
   await assert.rejects(
     () =>
-      createSubscription(ORGANIZATION_ID, {
+      createSubscription({
         customer: fixture.customer.id,
         default_payment_method: fixture.paymentMethod.id,
         items: [{ price: fixture.price.id }],
@@ -322,7 +323,7 @@ test("blocks duplicate active or past_due metered subscriptions for the same cus
 test("creates draft renewal invoices before finalization", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -344,7 +345,7 @@ test("creates draft renewal invoices before finalization", async () => {
 test("future grace-period threshold is policy-driven during finalization", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -376,7 +377,7 @@ test("future grace-period threshold is policy-driven during finalization", async
 test("renewal processing is idempotent across repeated runs", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -394,7 +395,7 @@ test("renewal processing is idempotent across repeated runs", async () => {
 test("auto-charge renewals produce a paid invoice and advance the billing period", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -412,7 +413,7 @@ test("auto-charge renewals produce a paid invoice and advance the billing period
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows[0]?.status, "paid");
 
-  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.status, "active");
   assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
@@ -422,7 +423,7 @@ test("auto-charge renewals produce a paid invoice and advance the billing period
 test("send-invoice renewals create an open invoice and mocked delivery", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     collection_method: "send_invoice",
     items: [{ price: fixture.price.id }],
@@ -445,12 +446,12 @@ test("send-invoice renewals create an open invoice and mocked delivery", async (
   assert.equal(deliveryRows.length, 1);
   assert.equal(deliveryRows[0]?.status, "sent");
 
-  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.status, "active");
   assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
 
-  const invoiceList = await listInvoices(ORGANIZATION_ID, {
+  const invoiceList = await listInvoices({
     customer: fixture.customer.id,
     limit: 10,
   });
@@ -461,14 +462,14 @@ test("send-invoice renewals create an open invoice and mocked delivery", async (
 test("metered renewals bill prior-period usage and keep invoice periods on the next cycle", async () => {
   await resetDb();
   const fixture = await createMeteredFixture("sum");
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
   const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2);
 
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: fixture.meter.event_name,
     identifier: `evt_${Date.now()}_1`,
     payload: {
@@ -477,7 +478,7 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
     },
     timestamp: Math.floor(new Date(pastStart.getTime() + 60_000).getTime() / 1000),
   });
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: fixture.meter.event_name,
     identifier: `evt_${Date.now()}_2`,
     payload: {
@@ -506,7 +507,7 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
   assert.equal(lineItems[0]?.periodStart.getTime(), pastStart.getTime());
   assert.equal(lineItems[0]?.periodEnd.getTime(), pastEnd.getTime());
 
-  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
 });
@@ -516,7 +517,7 @@ test("metered renewals support decimal unit amounts and round half up to minor u
   const fixture = await createMeteredFixture("sum", {
     unit_amount_decimal: "0.01",
   });
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -526,7 +527,7 @@ test("metered renewals support decimal unit amounts and round half up to minor u
   assert.equal(fixture.price.unit_amount, null);
   assert.equal(fixture.price.unit_amount_decimal, "0.01");
 
-  await createMeterEvent(ORGANIZATION_ID, {
+  await createMeterEvent({
     event_name: fixture.meter.event_name,
     identifier: `evt_${Date.now()}_decimal`,
     payload: {
@@ -559,7 +560,7 @@ test("metered renewals support decimal unit amounts and round half up to minor u
 test("zero-usage metered renewals create zero-amount invoices and still advance subscriptions", async () => {
   await resetDb();
   const fixture = await createMeteredFixture("count");
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -583,7 +584,7 @@ test("zero-usage metered renewals create zero-amount invoices and still advance 
   assert.equal(lineItems[0]?.quantity, 0);
   assert.equal(lineItems[0]?.amount, 0);
 
-  const renewed = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
 });
@@ -591,7 +592,7 @@ test("zero-usage metered renewals create zero-amount invoices and still advance 
 test("overdue send-invoice renewals move invoices and subscriptions to past_due", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     collection_method: "send_invoice",
     items: [{ price: fixture.price.id }],
@@ -617,7 +618,7 @@ test("overdue send-invoice renewals move invoices and subscriptions to past_due"
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows[0]?.status, "past_due");
 
-  const pastDueSubscription = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const pastDueSubscription = await getSubscription(subscription.id);
   assert.ok(pastDueSubscription);
   assert.equal(pastDueSubscription.status, "past_due");
 });
@@ -625,12 +626,12 @@ test("overdue send-invoice renewals move invoices and subscriptions to past_due"
 test("cancel_at_period_end cancels at the boundary without creating a renewal invoice", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  await updateSubscription(ORGANIZATION_ID, subscription.id, {
+  await updateSubscription(subscription.id, {
     cancel_at_period_end: true,
   });
   await expireSubscription(subscription.id, 2);
@@ -645,7 +646,7 @@ test("cancel_at_period_end cancels at the boundary without creating a renewal in
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows.length, 0);
 
-  const canceled = await getSubscription(ORGANIZATION_ID, subscription.id);
+  const canceled = await getSubscription(subscription.id);
   assert.ok(canceled);
   assert.equal(canceled.status, "canceled");
 });
@@ -653,17 +654,17 @@ test("cancel_at_period_end cancels at the boundary without creating a renewal in
 test("blocks customer deletion while active or past_due subscriptions exist", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  await createSubscription(ORGANIZATION_ID, {
+  await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
 
-  let result = await deleteCustomer(ORGANIZATION_ID, fixture.customer.id);
+  let result = await deleteCustomer(fixture.customer.id);
   assert.equal(result, "has_subscriptions");
 
   await dbSetAllSubscriptionsPastDue();
-  result = await deleteCustomer(ORGANIZATION_ID, fixture.customer.id);
+  result = await deleteCustomer(fixture.customer.id);
   assert.equal(result, "has_subscriptions");
 });
 
@@ -679,7 +680,7 @@ async function dbSetAllSubscriptionsPastDue() {
 test("detaching a payment method cancels dependent active and past_due subscriptions", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
@@ -693,8 +694,8 @@ test("detaching a payment method cancels dependent active and past_due subscript
     })
     .where(eq(subscriptions.id, subscription.id));
 
-  await detachPaymentMethod(ORGANIZATION_ID, fixture.paymentMethod.id);
-  const canceled = await getSubscription(ORGANIZATION_ID, subscription.id);
+  await detachPaymentMethod(fixture.paymentMethod.id);
+  const canceled = await getSubscription(subscription.id);
 
   assert.ok(canceled);
   assert.equal(canceled.status, "canceled");
@@ -703,7 +704,7 @@ test("detaching a payment method cancels dependent active and past_due subscript
 test("billing processor stores its last run summary in processor state", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
-  const subscription = await createSubscription(ORGANIZATION_ID, {
+  const subscription = await createSubscription({
     customer: fixture.customer.id,
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],

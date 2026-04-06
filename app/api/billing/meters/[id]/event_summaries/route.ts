@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   listMeterEventSummaries,
@@ -14,7 +14,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   const parsedId = meterEventSummaryMeterIdSchema.safeParse(id);
@@ -31,7 +34,6 @@ export async function GET(
 
   try {
     const summaries = await listMeterEventSummaries(
-      session.organizationId,
       parsedId.data,
       parsed.data
     );

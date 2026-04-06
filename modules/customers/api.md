@@ -1,5 +1,7 @@
 # Customers API
 
+> Authentication: all endpoints in this module require an authenticated user session or an authorized machine credential.
+
 ## `GET /api/customers`
 
 Returns a paginated Stripe-style list of customers.
