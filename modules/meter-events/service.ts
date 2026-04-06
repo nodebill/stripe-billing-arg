@@ -104,44 +104,34 @@ function addWindow(startTime: number, window: "hour" | "day") {
   return startTime + (window === "hour" ? 60 * 60 : 24 * 60 * 60);
 }
 
-async function getMeterById(organizationId: string, meterId: string) {
+async function getMeterById(meterId: string) {
   const db = getDb();
   const rows = await db
     .select()
     .from(meters)
-    .where(and(eq(meters.organizationId, organizationId), eq(meters.id, meterId)))
+    .where(eq(meters.id, meterId))
     .limit(1);
 
   return rows[0] ?? null;
 }
 
-async function getMeterByEventName(organizationId: string, eventName: string) {
+async function getMeterByEventName(eventName: string) {
   const db = getDb();
   const rows = await db
     .select()
     .from(meters)
-    .where(
-      and(
-        eq(meters.organizationId, organizationId),
-        eq(meters.eventName, eventName)
-      )
-    )
+    .where(eq(meters.eventName, eventName))
     .limit(1);
 
   return rows[0] ?? null;
 }
 
-async function assertCustomerExists(organizationId: string, customerId: string) {
+async function assertCustomerExists(customerId: string) {
   const db = getDb();
   const rows = await db
     .select({ id: customers.id })
     .from(customers)
-    .where(
-      and(
-        eq(customers.organizationId, organizationId),
-        eq(customers.id, customerId)
-      )
-    )
+    .where(eq(customers.id, customerId))
     .limit(1);
 
   if (!rows[0]) {
@@ -158,7 +148,6 @@ function aggregateMeterValues(formula: MeterRow["defaultAggregation"], rows: Met
 }
 
 async function loadMeterEvents(
-  organizationId: string,
   meterId: string,
   customerId: string,
   startTime: number,
@@ -171,7 +160,6 @@ async function loadMeterEvents(
     .from(meterEvents)
     .where(
       and(
-        eq(meterEvents.organizationId, organizationId),
         eq(meterEvents.meterId, meterId),
         eq(meterEvents.customerId, customerId),
         gte(meterEvents.eventTimestamp, new Date(startTime * 1000)),
@@ -181,7 +169,6 @@ async function loadMeterEvents(
 }
 
 export async function findMeteredSubscriptionsForCustomer(
-  organizationId: string,
   customerId: string,
   meterId: string,
   statuses: SubscriptionStatus[] = ["active", "past_due"]
@@ -194,7 +181,6 @@ export async function findMeteredSubscriptionsForCustomer(
     .from(subscriptions)
     .where(
       and(
-        eq(subscriptions.organizationId, organizationId),
         eq(subscriptions.customerId, customerId),
         inArray(subscriptions.status, statuses)
       )
@@ -206,12 +192,7 @@ export async function findMeteredSubscriptionsForCustomer(
     const itemRows = await db
       .select()
       .from(subscriptionItems)
-      .where(
-        and(
-          eq(subscriptionItems.organizationId, organizationId),
-          eq(subscriptionItems.subscriptionId, subscriptionRow.id)
-        )
-      )
+      .where(eq(subscriptionItems.subscriptionId, subscriptionRow.id))
       .limit(1);
 
     const item = itemRows[0];
@@ -222,12 +203,7 @@ export async function findMeteredSubscriptionsForCustomer(
     const priceRows = await db
       .select()
       .from(prices)
-      .where(
-        and(
-          eq(prices.organizationId, organizationId),
-          eq(prices.id, item.priceId)
-        )
-      )
+      .where(eq(prices.id, item.priceId))
       .limit(1);
 
     const price = priceRows[0];
@@ -242,7 +218,6 @@ export async function findMeteredSubscriptionsForCustomer(
 }
 
 export async function createMeterEvent(
-  organizationId: string,
   input: CreateMeterEventInput
 ): Promise<{ created: boolean; event: MeterEvent }> {
   await ensureTables();
@@ -253,19 +228,14 @@ export async function createMeterEvent(
   const existingRows = await db
     .select()
     .from(meterEvents)
-    .where(
-      and(
-        eq(meterEvents.organizationId, organizationId),
-        eq(meterEvents.identifier, identifier)
-      )
-    )
+    .where(eq(meterEvents.identifier, identifier))
     .limit(1);
 
   if (existingRows[0]) {
     return { created: false, event: toMeterEvent(existingRows[0]) };
   }
 
-  const meter = await getMeterByEventName(organizationId, input.event_name);
+  const meter = await getMeterByEventName(input.event_name);
   if (!meter) {
     throw new MeterEventError(
       "invalid_request",
@@ -279,11 +249,9 @@ export async function createMeterEvent(
     );
   }
 
-  await assertCustomerExists(organizationId, input.payload.stripe_customer_id);
+  await assertCustomerExists(input.payload.stripe_customer_id);
 
-  const matchingSubscriptions = await findMeteredSubscriptionsForCustomer(
-    organizationId,
-    input.payload.stripe_customer_id,
+  const matchingSubscriptions = await findMeteredSubscriptionsForCustomer(input.payload.stripe_customer_id,
     meter.id
   );
 
@@ -323,7 +291,6 @@ export async function createMeterEvent(
     .insert(meterEvents)
     .values({
       id: `mtevt_${nanoid()}`,
-      organizationId,
       meterId: meter.id,
       customerId: input.payload.stripe_customer_id,
       identifier,
@@ -340,22 +307,19 @@ export async function createMeterEvent(
 }
 
 export async function listMeterEventSummaries(
-  organizationId: string,
   meterId: string,
   params: ListMeterEventSummariesParams
 ): Promise<StripeMeterEventSummaryList> {
   await ensureTables();
 
-  const meter = await getMeterById(organizationId, meterId);
+  const meter = await getMeterById(meterId);
   if (!meter) {
     throw new MeterEventError("not_found", `No such meter: '${meterId}'`);
   }
 
-  await assertCustomerExists(organizationId, params.customer);
+  await assertCustomerExists(params.customer);
 
-  const rows = await loadMeterEvents(
-    organizationId,
-    meter.id,
+  const rows = await loadMeterEvents(meter.id,
     params.customer,
     params.start_time,
     params.end_time
@@ -404,7 +368,6 @@ export async function listMeterEventSummaries(
 }
 
 export async function getMeterUsageTotal(
-  organizationId: string,
   meterId: string,
   customerId: string,
   startTime: number,
@@ -412,14 +375,12 @@ export async function getMeterUsageTotal(
 ) {
   await ensureTables();
 
-  const meter = await getMeterById(organizationId, meterId);
+  const meter = await getMeterById(meterId);
   if (!meter) {
     throw new MeterEventError("not_found", `No such meter: '${meterId}'`);
   }
 
-  const rows = await loadMeterEvents(
-    organizationId,
-    meter.id,
+  const rows = await loadMeterEvents(meter.id,
     customerId,
     startTime,
     endTime

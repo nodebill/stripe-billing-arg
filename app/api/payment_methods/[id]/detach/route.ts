@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   detachPaymentMethod,
@@ -10,12 +10,15 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
   void request;
 
   try {
-    const paymentMethod = await detachPaymentMethod(session.organizationId, id);
+    const paymentMethod = await detachPaymentMethod(id);
     return NextResponse.json(paymentMethod);
   } catch (error) {
     if (error instanceof PaymentMethodError) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   deleteProduct,
@@ -12,10 +12,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const product = await getProduct(session.organizationId, id);
+  const product = await getProduct(id);
   if (!product) {
     return apiError(404, `No such product: '${id}'`);
   }
@@ -27,7 +30,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -44,7 +50,7 @@ export async function POST(
 
   let product;
   try {
-    product = await updateProduct(session.organizationId, id, parsed.data);
+    product = await updateProduct(id, parsed.data);
   } catch (error) {
     if (error instanceof Error) {
       return apiError(400, error.message);
@@ -64,10 +70,13 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const result = await deleteProduct(session.organizationId, id);
+  const result = await deleteProduct(id);
   if (result === "has_prices") {
     return apiError(
       400,

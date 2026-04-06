@@ -1,14 +1,13 @@
 import { PGlite } from "@electric-sql/pglite";
-import { Pool } from "pg";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { Pool } from "pg";
 import * as schema from "./schema";
 
 const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
       active BOOLEAN DEFAULT true NOT NULL,
       default_price_id TEXT,
@@ -20,21 +19,8 @@ const bootstrapStatements = [
     )
   `,
   `
-    ALTER TABLE products
-    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ
-  `,
-  `
-    ALTER TABLE products
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
-  `,
-  `
-    ALTER TABLE products
-    ADD COLUMN IF NOT EXISTS default_price_id TEXT
-  `,
-  `
     CREATE TABLE IF NOT EXISTS prices (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       product_id TEXT NOT NULL,
       active BOOLEAN DEFAULT true NOT NULL,
       billing_scheme TEXT NOT NULL,
@@ -47,129 +33,14 @@ const bootstrapStatements = [
       unit_amount_decimal TEXT NOT NULL,
       recurring_interval TEXT,
       recurring_interval_count INTEGER,
+      meter TEXT,
       created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
     )
   `,
   `
-    UPDATE prices
-    SET metadata = '{}'::jsonb
-    WHERE metadata IS NULL
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN metadata SET DEFAULT '{}'::jsonb
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN metadata SET NOT NULL
-  `,
-  `
-    ALTER TABLE prices
-    ADD COLUMN IF NOT EXISTS unit_amount_decimal TEXT
-  `,
-  `
-    UPDATE prices
-    SET unit_amount_decimal = unit_amount::text
-    WHERE unit_amount_decimal IS NULL AND unit_amount IS NOT NULL
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN unit_amount DROP NOT NULL
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN unit_amount_decimal SET NOT NULL
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN created_at SET DEFAULT now()
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN created_at SET NOT NULL
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN updated_at SET DEFAULT now()
-  `,
-  `
-    ALTER TABLE prices
-    ALTER COLUMN updated_at SET NOT NULL
-  `,
-  `
-    UPDATE products
-    SET metadata = '{}'::jsonb
-    WHERE metadata IS NULL
-  `,
-  `
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'products' AND column_name = 'created'
-      ) THEN
-        UPDATE products
-        SET created_at = COALESCE(created_at, to_timestamp(created))
-        WHERE created_at IS NULL;
-      END IF;
-    END $$;
-  `,
-  `
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'products' AND column_name = 'updated'
-      ) THEN
-        UPDATE products
-        SET updated_at = COALESCE(updated_at, to_timestamp(updated))
-        WHERE updated_at IS NULL;
-      END IF;
-    END $$;
-  `,
-  `
-    UPDATE products SET created_at = now() WHERE created_at IS NULL
-  `,
-  `
-    UPDATE products SET updated_at = now() WHERE updated_at IS NULL
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN metadata SET DEFAULT '{}'::jsonb
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN metadata SET NOT NULL
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN created_at SET DEFAULT now()
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN created_at SET NOT NULL
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN updated_at SET DEFAULT now()
-  `,
-  `
-    ALTER TABLE products
-    ALTER COLUMN updated_at SET NOT NULL
-  `,
-  `
-    ALTER TABLE products DROP COLUMN IF EXISTS created
-  `,
-  `
-    ALTER TABLE products DROP COLUMN IF EXISTS updated
-  `,
-  `
     CREATE TABLE IF NOT EXISTS customers (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       name TEXT,
       email TEXT,
       description TEXT,
@@ -182,7 +53,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS payment_methods (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       customer_id TEXT,
       type TEXT NOT NULL,
       custom_type TEXT NOT NULL,
@@ -196,7 +66,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS subscriptions (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       customer_id TEXT NOT NULL,
       status TEXT NOT NULL,
       collection_method TEXT NOT NULL DEFAULT 'charge_automatically',
@@ -212,22 +81,8 @@ const bootstrapStatements = [
     )
   `,
   `
-    ALTER TABLE subscriptions
-    ADD COLUMN IF NOT EXISTS collection_method TEXT
-  `,
-  `
-    UPDATE subscriptions
-    SET collection_method = 'charge_automatically'
-    WHERE collection_method IS NULL
-  `,
-  `
-    ALTER TABLE subscriptions
-    ALTER COLUMN default_payment_method_id DROP NOT NULL
-  `,
-  `
     CREATE TABLE IF NOT EXISTS subscription_items (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       subscription_id TEXT NOT NULL,
       price_id TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
@@ -237,7 +92,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS invoices (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       customer_id TEXT NOT NULL,
       subscription_id TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -258,12 +112,11 @@ const bootstrapStatements = [
   `,
   `
     CREATE UNIQUE INDEX IF NOT EXISTS invoices_subscription_period_idx
-    ON invoices (organization_id, subscription_id, period_start, period_end)
+    ON invoices (subscription_id, period_start, period_end)
   `,
   `
     CREATE TABLE IF NOT EXISTS invoice_line_items (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       invoice_id TEXT NOT NULL,
       price_id TEXT NOT NULL,
       quantity INTEGER DEFAULT 1 NOT NULL,
@@ -278,7 +131,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS invoice_deliveries (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       invoice_id TEXT NOT NULL,
       channel TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -304,7 +156,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS meters (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       display_name TEXT NOT NULL,
       event_name TEXT NOT NULL,
       default_aggregation TEXT NOT NULL,
@@ -317,7 +168,6 @@ const bootstrapStatements = [
   `
     CREATE TABLE IF NOT EXISTS meter_events (
       id TEXT PRIMARY KEY NOT NULL,
-      organization_id TEXT NOT NULL,
       meter_id TEXT NOT NULL,
       customer_id TEXT NOT NULL,
       identifier TEXT NOT NULL,
@@ -330,16 +180,184 @@ const bootstrapStatements = [
     )
   `,
   `
-    CREATE UNIQUE INDEX IF NOT EXISTS meter_events_org_identifier_idx
-    ON meter_events (organization_id, identifier)
+    CREATE UNIQUE INDEX IF NOT EXISTS meter_events_identifier_idx
+    ON meter_events (identifier)
   `,
   `
-    CREATE INDEX IF NOT EXISTS meter_events_org_meter_customer_timestamp_idx
-    ON meter_events (organization_id, meter_id, customer_id, event_timestamp)
+    CREATE INDEX IF NOT EXISTS meter_events_meter_customer_timestamp_idx
+    ON meter_events (meter_id, customer_id, event_timestamp)
   `,
   `
-    ALTER TABLE prices
-    ADD COLUMN IF NOT EXISTS meter TEXT
+    CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      email_verified BOOLEAN DEFAULT false NOT NULL,
+      image TEXT,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      role TEXT,
+      banned BOOLEAN DEFAULT false,
+      ban_reason TEXT,
+      ban_expires TIMESTAMPTZ
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS "session" (
+      id TEXT PRIMARY KEY NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      user_id TEXT NOT NULL,
+      impersonated_by TEXT
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS session_user_id_idx
+    ON "session" (user_id)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY NOT NULL,
+      account_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      access_token TEXT,
+      refresh_token TEXT,
+      id_token TEXT,
+      access_token_expires_at TIMESTAMPTZ,
+      refresh_token_expires_at TIMESTAMPTZ,
+      scope TEXT,
+      password TEXT,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS account_user_id_idx
+    ON account (user_id)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS verification (
+      id TEXT PRIMARY KEY NOT NULL,
+      identifier TEXT NOT NULL,
+      value TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS verification_identifier_idx
+    ON verification (identifier)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS apikey (
+      id TEXT PRIMARY KEY NOT NULL,
+      config_id TEXT DEFAULT 'default' NOT NULL,
+      name TEXT,
+      start TEXT,
+      reference_id TEXT NOT NULL,
+      prefix TEXT,
+      key TEXT NOT NULL,
+      refill_interval INTEGER,
+      refill_amount INTEGER,
+      last_refill_at TIMESTAMPTZ,
+      enabled BOOLEAN DEFAULT true,
+      rate_limit_enabled BOOLEAN DEFAULT true,
+      rate_limit_time_window INTEGER DEFAULT 3600000,
+      rate_limit_max INTEGER DEFAULT 1000,
+      request_count INTEGER DEFAULT 0,
+      remaining INTEGER,
+      last_request TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL,
+      permissions TEXT,
+      metadata TEXT
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS apikey_config_id_idx
+    ON apikey (config_id)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS apikey_reference_id_idx
+    ON apikey (reference_id)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS apikey_key_idx
+    ON apikey (key)
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS rate_limit (
+      id TEXT PRIMARY KEY NOT NULL,
+      key TEXT NOT NULL UNIQUE,
+      count INTEGER NOT NULL,
+      last_request BIGINT NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS team_invites (
+      id TEXT PRIMARY KEY NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      accepted_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      created_by_user_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE UNIQUE INDEX IF NOT EXISTS team_invites_token_hash_idx
+    ON team_invites (token_hash)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS team_invites_email_idx
+    ON team_invites (email)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS team_invites_created_by_user_id_idx
+    ON team_invites (created_by_user_id)
+  `,
+  `
+    ALTER TABLE products DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE prices DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE customers DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE payment_methods DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE subscriptions DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE subscription_items DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE invoices DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE invoice_line_items DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE invoice_deliveries DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE meters DROP COLUMN IF EXISTS organization_id
+  `,
+  `
+    ALTER TABLE meter_events DROP COLUMN IF EXISTS organization_id
   `,
 ] as const;
 
@@ -384,19 +402,24 @@ export function getDb() {
     return drizzleNodePg({ client, schema });
   }
 
-  // Local development: use PGlite (Postgres in WASM)
   const client = getLocalClient();
   return drizzlePglite({ client, schema });
 }
 
 let migrationPromise: Promise<void> | null = null;
+
 export async function ensureTables() {
   const db = getDb();
 
   if (!migrationPromise) {
     migrationPromise = (async () => {
-      for (const statement of bootstrapStatements) {
-        await db.execute(statement);
+      try {
+        for (const statement of bootstrapStatements) {
+          await db.execute(statement);
+        }
+      } catch (error) {
+        migrationPromise = null;
+        throw error;
       }
     })();
   }

@@ -30,7 +30,6 @@ function toCustomer(row: typeof customers.$inferSelect): Customer {
 }
 
 export async function createCustomer(
-  organizationId: string,
   input: CreateCustomerInput
 ): Promise<Customer> {
   await ensureTables();
@@ -43,7 +42,6 @@ export async function createCustomer(
     .insert(customers)
     .values({
       id,
-      organizationId,
       name: input.name ?? null,
       email: input.email ?? null,
       description: input.description ?? null,
@@ -58,7 +56,6 @@ export async function createCustomer(
 }
 
 export async function getCustomer(
-  organizationId: string,
   customerId: string
 ): Promise<Customer | null> {
   await ensureTables();
@@ -67,9 +64,7 @@ export async function getCustomer(
   const rows = await db
     .select()
     .from(customers)
-    .where(
-      and(eq(customers.id, customerId), eq(customers.organizationId, organizationId))
-    )
+    .where(eq(customers.id, customerId))
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -77,7 +72,6 @@ export async function getCustomer(
 }
 
 export async function updateCustomer(
-  organizationId: string,
   customerId: string,
   input: UpdateCustomerInput
 ): Promise<Customer | null> {
@@ -93,9 +87,7 @@ export async function updateCustomer(
   const rows = await db
     .update(customers)
     .set(values)
-    .where(
-      and(eq(customers.id, customerId), eq(customers.organizationId, organizationId))
-    )
+    .where(eq(customers.id, customerId))
     .returning();
 
   if (rows.length === 0) return null;
@@ -103,7 +95,6 @@ export async function updateCustomer(
 }
 
 export async function deleteCustomer(
-  organizationId: string,
   customerId: string
 ): Promise<DeleteCustomerResult> {
   await ensureTables();
@@ -114,7 +105,6 @@ export async function deleteCustomer(
     .from(subscriptions)
     .where(
       and(
-        eq(subscriptions.organizationId, organizationId),
         eq(subscriptions.customerId, customerId),
         inArray(subscriptions.status, ["active", "past_due"])
       )
@@ -135,21 +125,11 @@ export async function deleteCustomer(
         detachedAt: now,
         updatedAt: now,
       })
-      .where(
-        and(
-          eq(paymentMethods.organizationId, organizationId),
-          eq(paymentMethods.customerId, customerId)
-        )
-      );
+      .where(eq(paymentMethods.customerId, customerId));
 
     return tx
       .delete(customers)
-      .where(
-        and(
-          eq(customers.id, customerId),
-          eq(customers.organizationId, organizationId)
-        )
-      )
+      .where(eq(customers.id, customerId))
       .returning();
   });
 
@@ -158,14 +138,13 @@ export async function deleteCustomer(
 }
 
 export async function listCustomers(
-  organizationId: string,
   params: ListCustomersParams
 ): Promise<StripeList<Customer>> {
   await ensureTables();
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [eq(customers.organizationId, organizationId)];
+  const conditions = [];
 
   if (params.email !== undefined) {
     conditions.push(eq(customers.email, params.email));

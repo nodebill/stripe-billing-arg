@@ -28,19 +28,13 @@ function toInvoiceDelivery(row: InvoiceDeliveryRow): InvoiceDelivery {
 }
 
 async function getLatestDelivery(
-  organizationId: string,
   invoiceId: string
 ): Promise<InvoiceDelivery | null> {
   const db = getDb();
   const rows = await db
     .select()
     .from(invoiceDeliveries)
-    .where(
-      and(
-        eq(invoiceDeliveries.organizationId, organizationId),
-        eq(invoiceDeliveries.invoiceId, invoiceId)
-      )
-    )
+    .where(eq(invoiceDeliveries.invoiceId, invoiceId))
     .orderBy(desc(invoiceDeliveries.createdAt), desc(invoiceDeliveries.id))
     .limit(1);
 
@@ -48,7 +42,6 @@ async function getLatestDelivery(
 }
 
 async function toInvoice(
-  organizationId: string,
   row: InvoiceRow
 ): Promise<Invoice> {
   return {
@@ -68,14 +61,13 @@ async function toInvoice(
     auto_advance: row.autoAdvance,
     finalized_at: toUnix(row.finalizedAt),
     paid_at: toUnix(row.paidAt),
-    latest_delivery: await getLatestDelivery(organizationId, row.id),
+    latest_delivery: await getLatestDelivery(row.id),
     created: Math.floor(row.createdAt.getTime() / 1000),
     updated: Math.floor(row.updatedAt.getTime() / 1000),
   };
 }
 
 export async function getInvoice(
-  organizationId: string,
   invoiceId: string
 ): Promise<Invoice | null> {
   await ensureTables();
@@ -83,36 +75,25 @@ export async function getInvoice(
   const rows = await db
     .select()
     .from(invoices)
-    .where(
-      and(eq(invoices.organizationId, organizationId), eq(invoices.id, invoiceId))
-    )
+    .where(eq(invoices.id, invoiceId))
     .limit(1);
 
-  return rows[0] ? toInvoice(organizationId, rows[0]) : null;
+  return rows[0] ? toInvoice(rows[0]) : null;
 }
 
 export async function listInvoices(
-  organizationId: string,
   params: ListInvoicesParams
 ): Promise<StripeInvoiceList> {
   await ensureTables();
   const db = getDb();
   const limit = params.limit ?? 10;
-  const conditions = [
-    eq(invoices.organizationId, organizationId),
-    eq(invoices.customerId, params.customer),
-  ];
+  const conditions = [eq(invoices.customerId, params.customer)];
 
   if (params.starting_after) {
     const cursor = await db
       .select({ createdAt: invoices.createdAt })
       .from(invoices)
-      .where(
-        and(
-          eq(invoices.organizationId, organizationId),
-          eq(invoices.id, params.starting_after)
-        )
-      )
+      .where(eq(invoices.id, params.starting_after))
       .limit(1);
 
     if (cursor.length > 0) {
@@ -124,12 +105,7 @@ export async function listInvoices(
     const cursor = await db
       .select({ createdAt: invoices.createdAt })
       .from(invoices)
-      .where(
-        and(
-          eq(invoices.organizationId, organizationId),
-          eq(invoices.id, params.ending_before)
-        )
-      )
+      .where(eq(invoices.id, params.ending_before))
       .limit(1);
 
     if (cursor.length > 0) {
@@ -146,7 +122,7 @@ export async function listInvoices(
 
   const hasMore = rows.length > limit;
   const data = await Promise.all(
-    rows.slice(0, limit).map((row) => toInvoice(organizationId, row))
+    rows.slice(0, limit).map((row) => toInvoice(row))
   );
 
   return {

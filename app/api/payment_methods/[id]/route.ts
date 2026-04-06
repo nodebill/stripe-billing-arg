@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   getPaymentMethod,
@@ -12,10 +12,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const paymentMethod = await getPaymentMethod(session.organizationId, id);
+  const paymentMethod = await getPaymentMethod(id);
   if (!paymentMethod) {
     return apiError(404, `No such payment_method: '${id}'`);
   }
@@ -27,7 +30,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -44,7 +50,6 @@ export async function POST(
 
   try {
     const paymentMethod = await updatePaymentMethod(
-      session.organizationId,
       id,
       parsed.data
     );

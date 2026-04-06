@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { getCustomer } from "@/modules/customers/service";
 import { listCustomerPaymentMethods } from "@/modules/payment-methods/service";
@@ -9,10 +9,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const customer = await getCustomer(session.organizationId, id);
+  const customer = await getCustomer(id);
   if (!customer) {
     return apiError(404, `No such customer: '${id}'`);
   }
@@ -25,7 +28,6 @@ export async function GET(
   }
 
   const list = await listCustomerPaymentMethods(
-    session.organizationId,
     id,
     parsed.data
   );

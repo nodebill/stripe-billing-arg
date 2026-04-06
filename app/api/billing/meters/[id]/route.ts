@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { getMeter, updateMeter } from "@/modules/meters/service";
 import { updateMeterSchema } from "@/modules/meters/validation";
@@ -8,10 +8,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const meter = await getMeter(session.organizationId, id);
+  const meter = await getMeter(id);
   if (!meter) {
     return apiError(404, `No such meter: '${id}'`);
   }
@@ -23,7 +26,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -38,7 +44,7 @@ export async function POST(
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const meter = await updateMeter(session.organizationId, id, parsed.data);
+  const meter = await updateMeter(id, parsed.data);
   if (!meter) {
     return apiError(404, `No such meter: '${id}'`);
   }

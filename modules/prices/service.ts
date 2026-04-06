@@ -40,7 +40,6 @@ function toPrice(row: typeof prices.$inferSelect): Price {
 }
 
 export async function getPrice(
-  organizationId: string,
   priceId: string
 ): Promise<Price | null> {
   await ensureTables();
@@ -49,7 +48,7 @@ export async function getPrice(
   const rows = await db
     .select()
     .from(prices)
-    .where(and(eq(prices.id, priceId), eq(prices.organizationId, organizationId)))
+    .where(eq(prices.id, priceId))
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -57,7 +56,6 @@ export async function getPrice(
 }
 
 export async function createPrice(
-  organizationId: string,
   input: CreatePriceInput
 ): Promise<Price | null | { error: string }> {
   await ensureTables();
@@ -78,12 +76,7 @@ export async function createPrice(
         defaultPriceId: products.defaultPriceId,
       })
       .from(products)
-      .where(
-        and(
-          eq(products.id, input.product),
-          eq(products.organizationId, organizationId)
-        )
-      )
+      .where(eq(products.id, input.product))
       .limit(1);
 
     if (productRows.length === 0) {
@@ -95,12 +88,7 @@ export async function createPrice(
       const meterRows = await tx
         .select({ id: meters.id, status: meters.status })
         .from(meters)
-        .where(
-          and(
-            eq(meters.id, input.meter),
-            eq(meters.organizationId, organizationId)
-          )
-        )
+        .where(eq(meters.id, input.meter))
         .limit(1);
 
       if (meterRows.length === 0) {
@@ -116,7 +104,6 @@ export async function createPrice(
       .insert(prices)
       .values({
         id,
-        organizationId,
         productId: input.product,
         active: input.active ?? true,
         billingScheme: "per_unit",
@@ -141,12 +128,7 @@ export async function createPrice(
       await tx
         .update(products)
         .set({ defaultPriceId: row.id, updatedAt: now })
-        .where(
-          and(
-            eq(products.id, input.product),
-            eq(products.organizationId, organizationId)
-          )
-        );
+        .where(eq(products.id, input.product));
     }
 
     return toPrice(row);
@@ -154,7 +136,6 @@ export async function createPrice(
 }
 
 export async function updatePrice(
-  organizationId: string,
   priceId: string,
   input: UpdatePriceInput
 ): Promise<Price | null> {
@@ -170,7 +151,7 @@ export async function updatePrice(
     const rows = await tx
       .update(prices)
       .set(values)
-      .where(and(eq(prices.id, priceId), eq(prices.organizationId, organizationId)))
+      .where(eq(prices.id, priceId))
       .returning();
 
     if (rows.length === 0) return null;
@@ -184,7 +165,6 @@ export async function updatePrice(
         .where(
           and(
             eq(products.id, row.productId),
-            eq(products.organizationId, organizationId),
             eq(products.defaultPriceId, row.id)
           )
         );
@@ -195,7 +175,6 @@ export async function updatePrice(
 }
 
 export async function listPrices(
-  organizationId: string,
   params: ListPricesParams
 ): Promise<StripePriceList> {
   await ensureTables();
@@ -203,7 +182,6 @@ export async function listPrices(
 
   const limit = params.limit ?? 10;
   const conditions = [
-    eq(prices.organizationId, organizationId),
     eq(prices.productId, params.product),
   ];
 

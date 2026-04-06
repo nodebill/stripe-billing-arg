@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { getPrice, updatePrice } from "@/modules/prices/service";
 import { updatePriceSchema } from "@/modules/prices/validation";
@@ -8,10 +8,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const price = await getPrice(session.organizationId, id);
+  const price = await getPrice(id);
   if (!price) {
     return apiError(404, `No such price: '${id}'`);
   }
@@ -23,7 +26,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -38,7 +44,7 @@ export async function POST(
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const price = await updatePrice(session.organizationId, id, parsed.data);
+  const price = await updatePrice(id, parsed.data);
   if (!price) {
     return apiError(404, `No such price: '${id}'`);
   }

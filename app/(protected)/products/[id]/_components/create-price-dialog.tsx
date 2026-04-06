@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { CreateMeterDialog } from "@/app/billing/meters/_components/create-meter-dialog";
+import { CreateMeterDialog } from "@/app/(protected)/billing/meters/_components/create-meter-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

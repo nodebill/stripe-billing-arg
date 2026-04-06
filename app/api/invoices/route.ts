@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { listInvoices } from "@/modules/invoices/service";
 import { listInvoicesSchema } from "@/modules/invoices/validation";
 
 export async function GET(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { searchParams } = new URL(request.url);
   const raw = Object.fromEntries(searchParams.entries());
 
@@ -14,6 +17,6 @@ export async function GET(request: Request) {
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const list = await listInvoices(session.organizationId, parsed.data);
+  const list = await listInvoices(parsed.data);
   return NextResponse.json(list);
 }

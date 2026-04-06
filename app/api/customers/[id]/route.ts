@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   deleteCustomer,
@@ -12,10 +12,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const customer = await getCustomer(session.organizationId, id);
+  const customer = await getCustomer(id);
   if (!customer) {
     return apiError(404, `No such customer: '${id}'`);
   }
@@ -27,7 +30,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -42,7 +48,7 @@ export async function POST(
     return apiError(400, parsed.error.issues[0].message);
   }
 
-  const customer = await updateCustomer(session.organizationId, id, parsed.data);
+  const customer = await updateCustomer(id, parsed.data);
   if (!customer) {
     return apiError(404, `No such customer: '${id}'`);
   }
@@ -54,10 +60,13 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const result = await deleteCustomer(session.organizationId, id);
+  const result = await deleteCustomer(id);
   if (result === "has_subscriptions") {
     return apiError(
       400,

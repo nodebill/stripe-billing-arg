@@ -1,5 +1,13 @@
 # User Flows
 
+## Authentication
+
+1. Anonymous users are redirected to `/sign-in` before any protected console page loads.
+2. On the first deployment, `/bootstrap` remains public until the first admin is created.
+3. Team members sign in from `/sign-in` and land on `/products`.
+4. Invited teammates open `/accept-invite?token=...`, set their name and password, and are signed in immediately after acceptance.
+5. Admins open `/team` to invite or manage members and `/api-keys` to create or revoke machine credentials.
+
 ## Products index
 
 1. The user opens `/products`.

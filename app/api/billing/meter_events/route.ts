@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { createMeterEvent, MeterEventError } from "@/modules/meter-events/service";
 import { createMeterEventSchema } from "@/modules/meter-events/validation";
 
 export async function POST(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
 
   let body: unknown;
   try {
@@ -20,7 +23,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await createMeterEvent(session.organizationId, parsed.data);
+    const result = await createMeterEvent(parsed.data);
     return NextResponse.json(result.event, { status: result.created ? 201 : 200 });
   } catch (error) {
     if (error instanceof MeterEventError) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   cancelSubscription,
@@ -13,10 +13,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
-  const subscription = await getSubscription(session.organizationId, id);
+  const subscription = await getSubscription(id);
   if (!subscription) {
     return apiError(404, `No such subscription: '${id}'`);
   }
@@ -28,7 +31,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
 
   let body: unknown;
@@ -45,7 +51,6 @@ export async function POST(
 
   try {
     const subscription = await updateSubscription(
-      session.organizationId,
       id,
       parsed.data
     );
@@ -63,12 +68,15 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
   const { id } = await params;
   void request;
 
   try {
-    const subscription = await cancelSubscription(session.organizationId, id);
+    const subscription = await cancelSubscription(id);
     return NextResponse.json(subscription);
   } catch (error) {
     if (error instanceof SubscriptionError) {

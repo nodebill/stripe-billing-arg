@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/infrastructure/auth";
+import { requireApiSession } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import { createPaymentMethod } from "@/modules/payment-methods/service";
 import { createPaymentMethodSchema } from "@/modules/payment-methods/validation";
 
 export async function POST(request: Request) {
-  const session = await getSession(request);
+  const session = await requireApiSession(request);
+  if (session instanceof Response) {
+    return session;
+  }
 
   let body: unknown;
   try {
@@ -20,7 +23,6 @@ export async function POST(request: Request) {
   }
 
   const paymentMethod = await createPaymentMethod(
-    session.organizationId,
     parsed.data
   );
   return NextResponse.json(paymentMethod, { status: 201 });

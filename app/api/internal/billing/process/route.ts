@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/infrastructure/auth";
 import { apiError } from "@/lib/api-error";
 import {
   getBillingProcessorState,
@@ -26,8 +27,17 @@ function isAuthorized(request: Request) {
   return secrets.includes(token);
 }
 
+async function authorizeRequest(request: Request) {
+  try {
+    await requireAdmin(request);
+    return true;
+  } catch {
+    return isAuthorized(request);
+  }
+}
+
 export async function GET(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!(await authorizeRequest(request))) {
     return apiError(401, "Unauthorized billing processor request");
   }
 
@@ -36,7 +46,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!(await authorizeRequest(request))) {
     return apiError(401, "Unauthorized billing processor request");
   }
 
