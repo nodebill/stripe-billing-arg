@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Pencil } from "lucide-react";
+import { MetadataEditor } from "@/components/metadata-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +28,7 @@ export function EditPriceDialog({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<Record<string, string>>(price.metadata);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,6 +39,7 @@ export function EditPriceDialog({
     const body = {
       nickname: (formData.get("nickname") as string) || null,
       active: formData.get("active") === "on",
+      metadata,
     };
 
     const res = await fetch(`/api/prices/${price.id}`, {
@@ -80,6 +83,7 @@ export function EditPriceDialog({
               placeholder="Optional internal label"
             />
           </div>
+          <MetadataEditor defaultValue={price.metadata} onChange={setMetadata} />
           <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
             <div>
               <Label htmlFor="active" className="text-sm font-medium">

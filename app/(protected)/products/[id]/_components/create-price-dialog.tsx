@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { CreateMeterDialog } from "@/app/(protected)/billing/meters/_components/create-meter-dialog";
+import { MetadataEditor } from "@/components/metadata-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,6 +42,7 @@ export function CreatePriceDialog({
   const [priceType, setPriceType] = useState<PriceType>("one_time");
   const [usageType, setUsageType] = useState<"licensed" | "metered">("licensed");
   const [selectedMeterId, setSelectedMeterId] = useState("");
+  const [metadata, setMetadata] = useState<Record<string, string>>({});
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
@@ -50,6 +52,7 @@ export function CreatePriceDialog({
       setPriceType("one_time");
       setUsageType("licensed");
       setSelectedMeterId(meterOptions[0]?.id ?? "");
+      setMetadata({});
     }
   }
 
@@ -92,6 +95,7 @@ export function CreatePriceDialog({
     const amountField = unitAmountDecimal
       ? { unit_amount_decimal: unitAmountDecimal }
       : { unit_amount: Number(unitAmount) };
+    const hasMetadata = Object.keys(metadata).length > 0;
     const body =
       priceType === "recurring"
         ? {
@@ -101,6 +105,7 @@ export function CreatePriceDialog({
             ...amountField,
             nickname: (formData.get("nickname") as string) || undefined,
             active: formData.get("active") === "on",
+            metadata: hasMetadata ? metadata : undefined,
             recurring: {
               interval: formData.get("interval"),
               interval_count: 1,
@@ -115,6 +120,7 @@ export function CreatePriceDialog({
             ...amountField,
             nickname: (formData.get("nickname") as string) || undefined,
             active: formData.get("active") === "on",
+            metadata: hasMetadata ? metadata : undefined,
           };
 
     const res = await fetch("/api/prices", {
@@ -295,6 +301,7 @@ export function CreatePriceDialog({
               `0.01` for one-hundredth of a cent.
             </p>
           </div>
+          <MetadataEditor onChange={setMetadata} />
           <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
             <div>
               <Label htmlFor="active" className="text-sm font-medium">
