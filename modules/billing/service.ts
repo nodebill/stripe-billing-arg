@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   billingProcessorState,
@@ -22,8 +23,6 @@ import type {
 
 const PROCESSOR_STATE_ID = "subscription_billing";
 const PROCESSOR_LEASE_MS = 5 * 60 * 1000;
-const SEND_INVOICE_DUE_DAYS = 7;
-
 type SubscriptionRow = typeof subscriptions.$inferSelect;
 type LoadedDueSubscription = {
   subscription: SubscriptionRow;

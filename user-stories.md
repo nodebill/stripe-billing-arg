@@ -36,6 +36,8 @@
 
 - As an operator, I can create a subscription for a customer by selecting one active recurring price and choosing either automatic charging or manual invoice sending.
 - As an operator, when I choose automatic charging, I must select one attached payment method for the subscription.
+- As an operator, I can create a subscription with a Stripe-style aligned renewal date or a backdated start date instead of always starting the billing cycle today.
+- As an operator, I can choose whether the initial anchored or backdated service period creates an immediate proration invoice.
 - As an operator, I can open a customer detail page and review that customer's subscriptions.
 - As an operator, I can open a customer detail page and review renewal invoices and mocked invoice deliveries for that customer.
 - As an operator, I can cancel a subscription immediately.

@@ -4,6 +4,15 @@ export type SubscriptionStatus = "active" | "past_due" | "canceled";
 export type SubscriptionCollectionMethod =
   | "charge_automatically"
   | "send_invoice";
+export type SubscriptionProrationBehavior = "create_prorations" | "none";
+
+export type SubscriptionBillingCycleAnchorConfig = {
+  day_of_month: number;
+  month?: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+};
 
 export type SubscriptionItem = {
   id: string;
@@ -33,6 +42,10 @@ export type CreateSubscriptionInput = {
   customer: string;
   collection_method?: SubscriptionCollectionMethod;
   default_payment_method?: string;
+  billing_cycle_anchor?: number;
+  billing_cycle_anchor_config?: SubscriptionBillingCycleAnchorConfig;
+  backdate_start_date?: number;
+  proration_behavior?: SubscriptionProrationBehavior;
   items: Array<{
     price: string;
   }>;
