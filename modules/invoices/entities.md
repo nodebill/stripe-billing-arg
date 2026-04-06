@@ -35,6 +35,7 @@
 ## Rules
 
 - Invoices belong to one customer, one subscription, and one organization.
+- Subscription creation can also create an immediate finalized invoice when `proration_behavior=create_prorations` is used with an anchored or backdated licensed subscription.
 - The billing processor creates renewal invoices in `draft` first.
 - Draft invoices are finalized in a separate processor stage so a future grace period can delay finalization without changing the schema.
 - `charge_automatically` invoices are marked `paid` during collection in this version.

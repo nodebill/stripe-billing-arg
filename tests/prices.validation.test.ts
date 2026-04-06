@@ -22,6 +22,7 @@ test("accepts decimal metered prices and normalizes recurring defaults", () => {
 
   assert.equal(parsed.success, true);
   if (!parsed.success) return;
+  if (parsed.data.type !== "recurring") return;
 
   assert.equal(parsed.data.unit_amount_decimal, "0.01");
   assert.equal(parsed.data.recurring.interval_count, 1);

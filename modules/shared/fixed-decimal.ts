@@ -106,3 +106,37 @@ export function multiplyIntegerByDecimalAndRound(
 
   return Number(rounded);
 }
+
+export function multiplyDecimalByFractionAndRound(
+  decimalValue: string,
+  numerator: bigint,
+  denominator: bigint,
+  maxScale = MAX_FIXED_DECIMAL_SCALE
+): number {
+  if (numerator < BigInt(0)) {
+    throw new Error("Numerator must be non-negative");
+  }
+
+  if (denominator <= BigInt(0)) {
+    throw new Error("Denominator must be greater than zero");
+  }
+
+  const parsed = parseFixedDecimal(decimalValue, maxScale);
+  const dividend = parsed.mantissa * numerator;
+  const divisor = denominator * pow10(parsed.scale);
+  const quotient = dividend / divisor;
+  const remainder = dividend % divisor;
+  const rounded =
+    remainder === BigInt(0) || remainder * BigInt(2) < divisor
+      ? quotient
+      : quotient + BigInt(1);
+
+  if (
+    rounded > BigInt(Number.MAX_SAFE_INTEGER) ||
+    rounded < BigInt(Number.MIN_SAFE_INTEGER)
+  ) {
+    throw new Error("Rounded decimal amount exceeds the supported integer range");
+  }
+
+  return Number(rounded);
+}

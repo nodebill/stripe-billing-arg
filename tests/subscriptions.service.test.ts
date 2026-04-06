@@ -41,6 +41,7 @@ import {
   SubscriptionError,
   updateSubscription,
 } from "../modules/subscriptions/service";
+import { addRecurringInterval } from "../modules/shared/time";
 
 const ORGANIZATION_ID = "org_test";
 const runtime = globalThis as typeof globalThis & {
@@ -91,10 +92,11 @@ async function createRecurringFixture() {
     recurring: {
       interval: "month",
       interval_count: 1,
+      usage_type: "licensed",
     },
   });
 
-  if (!price) {
+  if (!price || "error" in price) {
     throw new Error("Expected recurring price fixture to be created");
   }
 
@@ -187,6 +189,11 @@ async function expireSubscription(subscriptionId: string, daysAgo = 1) {
   return { pastStart, pastEnd };
 }
 
+function getStartOfCurrentUtcMonth() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0));
+}
+
 test("creates subscriptions with either auto-charge or send-invoice collection methods", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
@@ -233,6 +240,193 @@ test("rejects auto-charge subscriptions without a default payment method", async
     (error: unknown) =>
       error instanceof SubscriptionError &&
       error.code === "default_payment_method_required"
+  );
+});
+
+test("default subscription creation keeps current_period_start near now", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const before = Date.now();
+
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+
+  const after = Date.now();
+  assert.ok(subscription.current_period_start * 1000 >= before - 1000);
+  assert.ok(subscription.current_period_start * 1000 <= after + 1000);
+  assert.ok(subscription.current_period_end > subscription.current_period_start);
+});
+
+test("billing_cycle_anchor_config can align the first renewal without an initial invoice", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    billing_cycle_anchor_config: {
+      day_of_month: 1,
+    },
+    proration_behavior: "none",
+    items: [{ price: fixture.price.id }],
+  });
+
+  assert.equal(new Date(subscription.current_period_end * 1000).getUTCDate(), 1);
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 0);
+});
+
+test("anchored auto-charge subscriptions create an immediate paid proration invoice", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    billing_cycle_anchor_config: {
+      day_of_month: 1,
+    },
+    proration_behavior: "create_prorations",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 1);
+  assert.equal(invoiceRows[0]?.status, "paid");
+  assert.equal(invoiceRows[0]?.amountPaid, invoiceRows[0]?.amountDue);
+  assert.equal(
+    Math.floor((invoiceRows[0]?.periodEnd.getTime() ?? 0) / 1000),
+    subscription.current_period_end
+  );
+
+  const lineItems = await getDb().select().from(invoiceLineItems);
+  assert.equal(lineItems.length, 1);
+  assert.equal(
+    Math.floor((lineItems[0]?.periodEnd.getTime() ?? 0) / 1000),
+    subscription.current_period_end
+  );
+});
+
+test("anchored send-invoice subscriptions create an open invoice and mocked delivery", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+
+  await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    billing_cycle_anchor_config: {
+      day_of_month: 1,
+    },
+    proration_behavior: "create_prorations",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 1);
+  assert.equal(invoiceRows[0]?.status, "open");
+  assert.ok(invoiceRows[0]?.dueDate);
+
+  const deliveryRows = await getDb().select().from(invoiceDeliveries);
+  assert.equal(deliveryRows.length, 1);
+  assert.equal(deliveryRows[0]?.status, "sent");
+});
+
+test("backdating to the first day of the current month updates the active period without an invoice when proration is none", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const backdate = getStartOfCurrentUtcMonth();
+
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    backdate_start_date: Math.floor(backdate.getTime() / 1000),
+    proration_behavior: "none",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const expectedEnd = addRecurringInterval(backdate, "month");
+  assert.equal(subscription.current_period_start, Math.floor(backdate.getTime() / 1000));
+  assert.equal(subscription.current_period_end, Math.floor(expectedEnd.getTime() / 1000));
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 0);
+});
+
+test("arbitrary backdate dates resolve the current active period that contains now", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const now = new Date();
+  const backdate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 17, 0, 0, 0)
+  );
+
+  const subscription = await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    backdate_start_date: Math.floor(backdate.getTime() / 1000),
+    proration_behavior: "none",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const createdAt = new Date(subscription.created * 1000);
+  let expectedStart = backdate;
+  let expectedEnd = addRecurringInterval(expectedStart, "month");
+
+  while (expectedEnd.getTime() <= createdAt.getTime()) {
+    expectedStart = expectedEnd;
+    expectedEnd = addRecurringInterval(expectedStart, "month");
+  }
+
+  assert.equal(subscription.current_period_start, Math.floor(expectedStart.getTime() / 1000));
+  assert.equal(subscription.current_period_end, Math.floor(expectedEnd.getTime() / 1000));
+});
+
+test("backdated licensed subscriptions can create a catch-up proration invoice", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const now = new Date();
+  const backdate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1, 0, 0, 0)
+  );
+
+  await createSubscription(ORGANIZATION_ID, {
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    backdate_start_date: Math.floor(backdate.getTime() / 1000),
+    proration_behavior: "create_prorations",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 1);
+  assert.equal(invoiceRows[0]?.status, "paid");
+  assert.ok((invoiceRows[0]?.amountDue ?? 0) > 0);
+  assert.equal(invoiceRows[0]?.periodStart.getTime(), backdate.getTime());
+  assert.ok((invoiceRows[0]?.periodEnd.getTime() ?? 0) > backdate.getTime());
+});
+
+test("metered subscriptions reject create_prorations when an initial proration would be required", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture();
+
+  await assert.rejects(
+    () =>
+      createSubscription(ORGANIZATION_ID, {
+        customer: fixture.customer.id,
+        default_payment_method: fixture.paymentMethod.id,
+        billing_cycle_anchor_config: {
+          day_of_month: 1,
+        },
+        proration_behavior: "create_prorations",
+        items: [{ price: fixture.price.id }],
+      }),
+    (error: unknown) =>
+      error instanceof SubscriptionError &&
+      error.code === "invalid_proration_behavior"
   );
 });
 
