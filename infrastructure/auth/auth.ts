@@ -7,8 +7,11 @@ import { getDb } from "@/infrastructure/database/client";
 
 export const MACHINE_API_KEY_CONFIG_ID = "machine";
 
-function getBaseURL() {
-  return process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+function normalizeHost(host: string) {
+  return host
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
 }
 
 function getSecret() {
@@ -23,8 +26,37 @@ function getSecret() {
   return "dev-only-better-auth-secret-change-me";
 }
 
+function getAllowedHosts() {
+  const hosts = new Set<string>([
+    "localhost:3000",
+    "127.0.0.1:3000",
+    "*-talopaymentsgmailcoms-projects.vercel.app",
+  ]);
+  const productionHost = process.env.BETTER_AUTH_PRODUCTION_HOST?.trim();
+
+  if (productionHost) {
+    hosts.add(normalizeHost(productionHost));
+  }
+
+  return [...hosts];
+}
+
+function getFallbackURL() {
+  const explicitBaseURL = process.env.BETTER_AUTH_URL?.trim();
+  if (explicitBaseURL) {
+    return explicitBaseURL;
+  }
+
+  const productionHost = process.env.BETTER_AUTH_PRODUCTION_HOST?.trim();
+  if (productionHost) {
+    return `https://${normalizeHost(productionHost)}`;
+  }
+
+  return "http://localhost:3000";
+}
+
 function getTrustedOrigins() {
-  const origins = new Set<string>([getBaseURL()]);
+  const origins = new Set<string>();
   const extraOrigins = process.env.BETTER_AUTH_TRUSTED_ORIGINS
     ?.split(",")
     .map((value) => value.trim())
@@ -34,17 +66,16 @@ function getTrustedOrigins() {
     origins.add(origin);
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    origins.add("http://localhost:3000");
-    origins.add("http://127.0.0.1:3000");
-  }
-
   return [...origins];
 }
 
 export const auth = betterAuth({
   appName: "Havana",
-  baseURL: getBaseURL(),
+  baseURL: {
+    allowedHosts: getAllowedHosts(),
+    fallback: getFallbackURL(),
+    protocol: process.env.NODE_ENV === "development" ? "http" : "https",
+  },
   secret: getSecret(),
   database: drizzleAdapter(getDb(), {
     provider: "pg",
