@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
@@ -6,12 +6,13 @@ import {
   paymentMethods,
   subscriptions,
 } from "@/infrastructure/database/schema";
-import type { StripeList } from "@/modules/shared/types";
+import type { StripeList, StripeSearchResult } from "@/modules/shared/types";
 import type {
   CreateCustomerInput,
   Customer,
   DeleteCustomerResult,
   ListCustomersParams,
+  SearchCustomersParams,
   UpdateCustomerInput,
 } from "./types";
 
@@ -189,5 +190,58 @@ export async function listCustomers(
     data,
     has_more: hasMore,
     url: "/api/customers",
+  };
+}
+
+export async function searchCustomers(
+  params: SearchCustomersParams
+): Promise<StripeSearchResult<Customer>> {
+  await ensureTables();
+  const db = getDb();
+
+  const limit = params.limit ?? 10;
+  const conditions = [
+    sql<boolean>`${customers.metadata} ->> 'external_id' = ${params.externalId}`,
+  ];
+
+  if (params.page) {
+    const cursor = await db
+      .select({
+        id: customers.id,
+        createdAt: customers.createdAt,
+      })
+      .from(customers)
+      .where(eq(customers.id, params.page))
+      .limit(1);
+
+    if (cursor.length > 0) {
+      conditions.push(
+        sql<boolean>`(
+          ${customers.createdAt} < ${cursor[0].createdAt}
+          or (
+            ${customers.createdAt} = ${cursor[0].createdAt}
+            and ${customers.id} < ${cursor[0].id}
+          )
+        )`
+      );
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(customers)
+    .where(and(...conditions))
+    .orderBy(desc(customers.createdAt), desc(customers.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const data = rows.slice(0, limit).map(toCustomer);
+
+  return {
+    object: "search_result",
+    data,
+    has_more: hasMore,
+    next_page: hasMore ? data[data.length - 1]?.id ?? null : null,
+    url: "/api/customers/search",
   };
 }

@@ -13,7 +13,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Customer, StripeList } from "@/modules/customers/types";
+import type {
+  Customer,
+  StripeList,
+  StripeSearchResult,
+} from "@/modules/customers/types";
 import { CreateCustomerDialog } from "./create-customer-dialog";
 import { DeleteCustomerDialog } from "./delete-customer-dialog";
 import { EditCustomerDialog } from "./edit-customer-dialog";
@@ -24,6 +28,8 @@ export function CustomersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [remoteMatches, setRemoteMatches] = useState<Customer[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const fetchCustomers = useCallback(async (startingAfter?: string) => {
     const params = new URLSearchParams();
@@ -60,6 +66,59 @@ export function CustomersView() {
     fetchCustomers();
   }, [fetchCustomers]);
 
+  useEffect(() => {
+    const trimmedSearch = search.trim();
+
+    if (!trimmedSearch) {
+      setRemoteMatches([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      const escapedSearch = trimmedSearch
+        .replaceAll("\\", "\\\\")
+        .replaceAll("'", "\\'");
+
+      try {
+        setSearchLoading(true);
+        const params = new URLSearchParams({
+          query: `metadata['external_id']:'${escapedSearch}'`,
+          limit: "100",
+        });
+
+        const res = await fetch(`/api/customers/search?${params}`, {
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to search customers (${res.status})`);
+        }
+
+        const data: StripeSearchResult<Customer> = await res.json();
+        setRemoteMatches(data.data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+
+        setRemoteMatches([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setSearchLoading(false);
+        }
+      }
+    }, 250);
+
+    setRemoteMatches([]);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [search]);
+
   function refresh() {
     setLoading(true);
     setError(null);
@@ -74,13 +133,28 @@ export function CustomersView() {
     });
   }
 
-  const filtered = search
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = normalizedSearch
     ? customers.filter(
         (c) =>
-          c.name?.toLowerCase().includes(search.toLowerCase()) ||
-          c.email?.toLowerCase().includes(search.toLowerCase()) ||
-          c.id.toLowerCase().includes(search.toLowerCase())
+          c.name?.toLowerCase().includes(normalizedSearch) ||
+          c.email?.toLowerCase().includes(normalizedSearch) ||
+          c.id.toLowerCase().includes(normalizedSearch)
       )
+    : customers;
+  const visibleCustomers = normalizedSearch
+    ? [...filtered, ...remoteMatches]
+        .reduce<Customer[]>((unique, customer) => {
+          if (!unique.some((entry) => entry.id === customer.id)) {
+            unique.push(customer);
+          }
+
+          return unique;
+        }, [])
+        .sort(
+          (left, right) =>
+            right.created - left.created || right.id.localeCompare(left.id)
+        )
     : customers;
 
   return (
@@ -94,15 +168,22 @@ export function CustomersView() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative max-w-sm flex-1">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search customers..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8"
-          />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-sm flex-1">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search name, email, ID, or exact external ID"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {searchLoading && normalizedSearch
+              ? "Searching exact external IDs..."
+              : "Search loaded customers by name, email, or ID, and remotely by exact external ID."}
+          </p>
         </div>
         <CreateCustomerDialog onCreated={refresh} />
       </div>
@@ -151,15 +232,22 @@ export function CustomersView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((customer) => (
+              {visibleCustomers.map((customer) => (
                 <TableRow key={customer.id}>
                   <TableCell className="font-medium">
-                    <Link
-                      href={`/customers/${customer.id}`}
-                      className="hover:underline"
-                    >
-                      {customer.name || customer.email || customer.id}
-                    </Link>
+                    <div className="flex flex-col gap-1">
+                      <Link
+                        href={`/customers/${customer.id}`}
+                        className="hover:underline"
+                      >
+                        {customer.name || customer.email || customer.id}
+                      </Link>
+                      {customer.metadata.external_id && (
+                        <span className="text-xs font-normal text-muted-foreground">
+                          External ID: {customer.metadata.external_id}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {customer.email || "--"}
@@ -180,20 +268,22 @@ export function CustomersView() {
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {visibleCustomers.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={5}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    No customers match your search.
+                    {searchLoading && normalizedSearch
+                      ? "Searching customers..."
+                      : "No customers match your search."}
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
 
-          {hasMore && (
+          {!normalizedSearch && hasMore && (
             <div className="flex justify-center border-t px-4 py-3">
               <Button
                 variant="ghost"

@@ -34,6 +34,11 @@ All endpoints follow existing Stripe-style conventions (POST for mutations, curs
 - Query: `limit`, `email`, `starting_after`, `ending_before`
 - Returns: `StripeList<Customer>`
 
+### GET /api/customers/search
+- Query: `query`, `limit`, `page`
+- Returns: Stripe-style search results
+- Supported query shape in this version: `metadata['external_id']:'value'`
+
 ### GET /api/customers/:id (retrieve)
 - Returns: Customer object or 404
 
@@ -91,7 +96,7 @@ type DeletedCustomer = {
 ## Frontend Behavior
 
 - List shows: name, email, created date, metadata count
-- Search filters by name or email (client-side, same pattern as products)
+- Search filters loaded customers by name, email, or ID and also performs exact remote lookup by `metadata.external_id`
 - Cursor pagination with "Load more" button
 - Icon: `Users` from lucide-react
 - No detail page (no child resources yet)

@@ -4,3 +4,11 @@ export type StripeList<T> = {
   has_more: boolean;
   url: string;
 };
+
+export type StripeSearchResult<T> = {
+  object: "search_result";
+  data: T[];
+  has_more: boolean;
+  next_page: string | null;
+  url: string;
+};

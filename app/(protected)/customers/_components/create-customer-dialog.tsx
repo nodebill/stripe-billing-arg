@@ -27,10 +27,12 @@ export function CreateCustomerDialog({ onCreated }: { onCreated: () => void }) {
     setError(null);
 
     const formData = new FormData(e.currentTarget);
+    const externalId = ((formData.get("external_id") as string) || "").trim();
     const body = {
       name: (formData.get("name") as string) || undefined,
       email: (formData.get("email") as string) || undefined,
       description: (formData.get("description") as string) || undefined,
+      metadata: externalId ? { external_id: externalId } : undefined,
     };
 
     const res = await fetch("/api/customers", {
@@ -92,6 +94,14 @@ export function CreateCustomerDialog({ onCreated }: { onCreated: () => void }) {
               name="description"
               placeholder="A brief description of this customer"
               rows={3}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="external_id">External ID</Label>
+            <Input
+              id="external_id"
+              name="external_id"
+              placeholder="e.g. crm_12345"
             />
           </div>
 
