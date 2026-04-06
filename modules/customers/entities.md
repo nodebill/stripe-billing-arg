@@ -18,5 +18,6 @@
 - Customers can have many attached payment methods.
 - Customers can have many subscriptions.
 - Customers can have many invoices.
+- `metadata.external_id` is a supported exact-match lookup key for customer search.
 - Deleting a customer automatically detaches any attached payment methods before the customer is removed.
 - Customers with active or past-due subscriptions cannot be deleted.

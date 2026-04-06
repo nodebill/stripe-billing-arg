@@ -42,7 +42,8 @@
 
 1. The user opens `/customers`.
 2. The page lists customers and exposes create, edit, delete, search, and navigation into a specific customer.
-3. Clicking a customer name opens `/customers/[id]`.
+3. The search box filters loaded customers by name, email, or ID and also performs an exact remote search by `metadata.external_id`.
+4. Clicking a customer name opens `/customers/[id]`.
 
 ## Customer detail and billing
 

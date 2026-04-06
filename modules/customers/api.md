@@ -12,6 +12,18 @@ Query params:
 - `starting_after`
 - `ending_before`
 
+## `GET /api/customers/search`
+
+Returns a Stripe-style customer search result.
+
+Query params:
+- `query` (required)
+- `limit`
+- `page`
+
+Supported query shape in this version:
+- `metadata['external_id']:'value'`
+
 ## `POST /api/customers`
 
 Creates a customer.

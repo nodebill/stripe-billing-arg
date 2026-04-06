@@ -39,4 +39,10 @@ export type ListCustomersParams = {
   ending_before?: string;
 };
 
-export type { StripeList } from "@/modules/shared/types";
+export type SearchCustomersParams = {
+  externalId: string;
+  limit?: number;
+  page?: string;
+};
+
+export type { StripeList, StripeSearchResult } from "@/modules/shared/types";
