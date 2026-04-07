@@ -5,8 +5,8 @@ import { sql } from "drizzle-orm";
 import { ensureTables } from "@/infrastructure/database/client";
 import { getDb } from "@/infrastructure/database/client";
 
-const BOOTSTRAP_SIGN_UP_HEADER = "x-havana-bootstrap-key";
-const INVITE_TOKEN_HEADER = "x-havana-invite-token";
+const BOOTSTRAP_SIGN_UP_HEADER = "x-bootstrap-sign-up-key";
+const INVITE_TOKEN_HEADER = "x-team-invite-token";
 
 type InviteRow = {
   id: string;
@@ -26,7 +26,7 @@ function getAuthSecret() {
     throw new Error("BETTER_AUTH_SECRET is required in production");
   }
 
-  return "dev-only-better-auth-secret-change-me";
+  return "local-dev-auth-secret-change-me";
 }
 
 export function hashInviteToken(token: string) {
@@ -43,7 +43,7 @@ export function getBootstrapSignUpHeader() {
 
 export function getBootstrapSignUpValue() {
   return createHmac("sha256", getAuthSecret())
-    .update("havana:bootstrap")
+    .update("bootstrap-sign-up")
     .digest("hex");
 }
 

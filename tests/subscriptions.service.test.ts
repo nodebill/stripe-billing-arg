@@ -161,7 +161,11 @@ async function createMeteredFixture(
   };
 }
 
-async function expireSubscription(subscriptionId: string, daysAgo = 1) {
+async function expireSubscription(
+  subscriptionId: string,
+  daysAgo = 1,
+  referenceDate = new Date()
+) {
   const db = getDb();
   const rows = await db
     .select()
@@ -174,7 +178,9 @@ async function expireSubscription(subscriptionId: string, daysAgo = 1) {
     throw new Error(`No such subscription '${subscriptionId}'`);
   }
 
-  const pastEnd = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  const pastEnd = new Date(
+    referenceDate.getTime() - daysAgo * 24 * 60 * 60 * 1000
+  );
   const pastStart = new Date(pastEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   await db
@@ -521,9 +527,8 @@ test("creates draft renewal invoices before finalization", async () => {
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  await expireSubscription(subscription.id, 2);
-
   const createdAt = new Date("2026-04-04T10:00:00.000Z");
+  await expireSubscription(subscription.id, 2, createdAt);
   const creation = await createRenewalInvoices(createdAt);
 
   assert.equal(creation.processedSubscriptions, 1);
@@ -543,9 +548,8 @@ test("future grace-period threshold is policy-driven during finalization", async
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  await expireSubscription(subscription.id, 2);
-
   const createdAt = new Date("2026-04-04T10:00:00.000Z");
+  await expireSubscription(subscription.id, 2, createdAt);
   await createRenewalInvoices(createdAt);
 
   const noFinalize = await finalizeEligibleDraftInvoices(
@@ -575,9 +579,8 @@ test("renewal processing is idempotent across repeated runs", async () => {
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  await expireSubscription(subscription.id, 2);
-
   const runAt = new Date("2026-04-04T12:00:00.000Z");
+  await expireSubscription(subscription.id, 2, runAt);
   await createRenewalInvoices(runAt);
   await createRenewalInvoices(runAt);
 
@@ -593,10 +596,11 @@ test("auto-charge renewals produce a paid invoice and advance the billing period
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  const { pastEnd } = await expireSubscription(subscription.id, 2);
+  const runAt = new Date("2026-04-04T13:00:00.000Z");
+  const { pastEnd } = await expireSubscription(subscription.id, 2, runAt);
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T13:00:00.000Z"),
+    runAt,
     trigger: "test_auto_charge",
   });
 
@@ -621,10 +625,11 @@ test("send-invoice renewals create an open invoice and mocked delivery", async (
     collection_method: "send_invoice",
     items: [{ price: fixture.price.id }],
   });
-  const { pastEnd } = await expireSubscription(subscription.id, 2);
+  const runAt = new Date("2026-04-04T14:00:00.000Z");
+  const { pastEnd } = await expireSubscription(subscription.id, 2, runAt);
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T14:00:00.000Z"),
+    runAt,
     trigger: "test_send_invoice",
   });
 
@@ -660,7 +665,8 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2);
+  const runAt = new Date();
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2, runAt);
 
   await createMeterEvent({
     event_name: fixture.meter.event_name,
@@ -682,7 +688,7 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
   });
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T14:30:00.000Z"),
+    runAt,
     trigger: "test_metered_sum",
   });
 
@@ -715,7 +721,8 @@ test("metered renewals support decimal unit amounts and round half up to minor u
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2);
+  const runAt = new Date();
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id, 2, runAt);
 
   assert.equal(fixture.price.unit_amount, null);
   assert.equal(fixture.price.unit_amount_decimal, "0.01");
@@ -731,7 +738,7 @@ test("metered renewals support decimal unit amounts and round half up to minor u
   });
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T14:35:00.000Z"),
+    runAt,
     trigger: "test_metered_decimal",
   });
 
@@ -758,10 +765,11 @@ test("zero-usage metered renewals create zero-amount invoices and still advance 
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  const { pastEnd } = await expireSubscription(subscription.id, 2);
+  const runAt = new Date("2026-04-04T14:45:00.000Z");
+  const { pastEnd } = await expireSubscription(subscription.id, 2, runAt);
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T14:45:00.000Z"),
+    runAt,
     trigger: "test_metered_zero",
   });
 
@@ -790,10 +798,11 @@ test("overdue send-invoice renewals move invoices and subscriptions to past_due"
     collection_method: "send_invoice",
     items: [{ price: fixture.price.id }],
   });
-  await expireSubscription(subscription.id, 3);
+  const createRunAt = new Date("2026-04-04T15:00:00.000Z");
+  await expireSubscription(subscription.id, 3, createRunAt);
 
   await processDueSubscriptions({
-    runAt: new Date("2026-04-04T15:00:00.000Z"),
+    runAt: createRunAt,
     trigger: "test_past_due_create",
   });
 
@@ -827,10 +836,11 @@ test("cancel_at_period_end cancels at the boundary without creating a renewal in
   await updateSubscription(subscription.id, {
     cancel_at_period_end: true,
   });
-  await expireSubscription(subscription.id, 2);
+  const runAt = new Date("2026-04-04T17:00:00.000Z");
+  await expireSubscription(subscription.id, 2, runAt);
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T17:00:00.000Z"),
+    runAt,
     trigger: "test_cancel_at_period_end",
   });
 
@@ -902,10 +912,11 @@ test("billing processor stores its last run summary in processor state", async (
     default_payment_method: fixture.paymentMethod.id,
     items: [{ price: fixture.price.id }],
   });
-  await expireSubscription(subscription.id, 2);
+  const runAt = new Date("2026-04-04T18:00:00.000Z");
+  await expireSubscription(subscription.id, 2, runAt);
 
   const summary = await processDueSubscriptions({
-    runAt: new Date("2026-04-04T18:00:00.000Z"),
+    runAt,
     trigger: "test_processor_state",
   });
 

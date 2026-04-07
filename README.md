@@ -2,7 +2,7 @@
 
 Pentos is a Stripe-inspired billing sandbox for Argentina. It includes a small admin console and API for managing products, prices, customers, subscriptions, invoices, and metered billing.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnodebill%2Fstripe-billing-arg&project-name=pentos-billing&repository-name=stripe-billing-arg&env=DATABASE_URL,BETTER_AUTH_SECRET,BETTER_AUTH_URL,CRON_SECRET&envDescription=Set%20your%20Postgres%20connection%2C%20Better%20Auth%20settings%2C%20and%20the%20cron%20secret%20used%20by%20the%20hourly%20billing%20processor.&envLink=https%3A%2F%2Fgithub.com%2Fnodebill%2Fstripe-billing-arg%23environment-variables)
+Import this repository into Vercel and provide the environment variables listed below.
 
 ## Capabilities
 
@@ -13,7 +13,7 @@ Pentos is a Stripe-inspired billing sandbox for Argentina. It includes a small a
 
 ## Deploy on Vercel
 
-1. Click the Deploy button above.
+1. Import this repository in Vercel.
 2. Provide the required environment variables listed below.
 3. Complete the deploy and open `/bootstrap` on your production URL to create the first admin user.
 4. After the first admin exists, the bootstrap page closes automatically and the app switches to normal sign-in.
@@ -48,7 +48,7 @@ For local Postgres or migrations, set `DATABASE_URL` in `.env.local`. Without it
 
 If your Vercel project is connected to Git:
 
-1. Pull or sync the latest changes from `nodebill/stripe-billing-arg` into your repo or fork.
+1. Pull or sync the latest changes from your upstream repository into your repo or fork.
 2. Push the updated code to the branch tracked as Production in your Vercel project. For a fresh import of this repo, Vercel will normally use `master` because the repository does not have a `main` branch.
 3. Vercel will create a new production deployment automatically after the push.
 

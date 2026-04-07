@@ -23,7 +23,7 @@ function getSecret() {
     throw new Error("BETTER_AUTH_SECRET is required in production");
   }
 
-  return "dev-only-better-auth-secret-change-me";
+  return "local-dev-auth-secret-change-me";
 }
 
 function getAllowedHosts() {
