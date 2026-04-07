@@ -201,7 +201,7 @@ export async function searchCustomers(
 
   const limit = params.limit ?? 10;
   const conditions = [
-    sql<boolean>`${customers.metadata} ->> 'external_id' = ${params.externalId}`,
+    sql<boolean>`${customers.metadata} ->> ${params.metadataKey} = ${params.metadataValue}`,
   ];
 
   if (params.page) {

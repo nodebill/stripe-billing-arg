@@ -7,7 +7,8 @@ test("customer search validation accepts Stripe-style external_id queries", () =
     query: "metadata['external_id']:'crm_123'",
   });
 
-  assert.equal(parsed.externalId, "crm_123");
+  assert.equal(parsed.metadataKey, "external_id");
+  assert.equal(parsed.metadataValue, "crm_123");
   assert.equal(parsed.limit, 10);
   assert.equal(parsed.page, undefined);
 });
@@ -18,7 +19,8 @@ test("customer search validation supports escaped single quotes", () => {
     limit: "5",
   });
 
-  assert.equal(parsed.externalId, "crm'123");
+  assert.equal(parsed.metadataKey, "external_id");
+  assert.equal(parsed.metadataValue, "crm'123");
   assert.equal(parsed.limit, 5);
 });
 

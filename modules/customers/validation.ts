@@ -22,8 +22,8 @@ export const listCustomersSchema = z.object({
   ending_before: customerIdSchema.optional(),
 });
 
-const externalIdQueryPattern =
-  /^metadata\['external_id'\]:'((?:\\.|[^'])*)'$/;
+const metadataQueryPattern =
+  /^metadata\['([A-Za-z0-9_]+)'\]:'((?:\\.|[^'])*)'$/;
 
 export const searchCustomersSchema = z
   .object({
@@ -32,31 +32,34 @@ export const searchCustomersSchema = z
     page: customerIdSchema.optional(),
   })
   .transform(({ query, ...rest }, ctx) => {
-    const match = externalIdQueryPattern.exec(query);
+    const match = metadataQueryPattern.exec(query);
 
     if (!match) {
       ctx.addIssue({
         code: "custom",
-        message: "Only metadata['external_id']:'value' queries are supported",
+        message:
+          "Only metadata['<key>']:'<value>' queries are supported",
       });
       return z.NEVER;
     }
 
-    const externalId = match[1]
+    const metadataKey = match[1];
+    const metadataValue = match[2]
       .replace(/\\\\/g, "\\")
       .replace(/\\'/g, "'")
       .trim();
 
-    if (externalId.length === 0) {
+    if (metadataValue.length === 0) {
       ctx.addIssue({
         code: "custom",
-        message: "external_id query value is required",
+        message: "metadata query value is required",
       });
       return z.NEVER;
     }
 
     return {
       ...rest,
-      externalId,
+      metadataKey,
+      metadataValue,
     };
   });

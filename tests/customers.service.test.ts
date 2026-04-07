@@ -72,7 +72,8 @@ test("customer search returns only exact external_id matches in descending order
   await setCustomerTimestamp(second.id, 1_700_000_100);
 
   const results = await searchCustomers({
-    externalId: "crm_shared",
+    metadataKey: "external_id",
+    metadataValue: "crm_shared",
   });
 
   assert.equal(results.object, "search_result");
@@ -105,7 +106,8 @@ test("customer search paginates with page based on the last returned customer id
   await setCustomerTimestamp(third.id, 1_700_000_200);
 
   const firstPage = await searchCustomers({
-    externalId: "crm_page",
+    metadataKey: "external_id",
+    metadataValue: "crm_page",
     limit: 2,
   });
 
@@ -117,7 +119,8 @@ test("customer search paginates with page based on the last returned customer id
   );
 
   const secondPage = await searchCustomers({
-    externalId: "crm_page",
+    metadataKey: "external_id",
+    metadataValue: "crm_page",
     limit: 2,
     page: firstPage.next_page ?? undefined,
   });

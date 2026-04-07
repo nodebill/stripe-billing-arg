@@ -40,7 +40,8 @@ export type ListCustomersParams = {
 };
 
 export type SearchCustomersParams = {
-  externalId: string;
+  metadataKey: string;
+  metadataValue: string;
   limit?: number;
   page?: string;
 };
