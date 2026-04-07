@@ -251,24 +251,6 @@ export async function createMeterEvent(
 
   await assertCustomerExists(input.payload.stripe_customer_id);
 
-  const matchingSubscriptions = await findMeteredSubscriptionsForCustomer(input.payload.stripe_customer_id,
-    meter.id
-  );
-
-  if (matchingSubscriptions.length === 0) {
-    throw new MeterEventError(
-      "invalid_request",
-      `No active or past_due subscription found for customer '${input.payload.stripe_customer_id}' and meter '${meter.id}'`
-    );
-  }
-
-  if (matchingSubscriptions.length > 1) {
-    throw new MeterEventError(
-      "invalid_request",
-      `Multiple active or past_due subscriptions found for customer '${input.payload.stripe_customer_id}' and meter '${meter.id}'`
-    );
-  }
-
   const now = Math.floor(Date.now() / 1000);
   const timestamp = input.timestamp ?? now;
 
