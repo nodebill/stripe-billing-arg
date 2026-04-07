@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ReceiptText, Repeat, WalletCards } from "lucide-react";
+import { ArrowLeft, MapPin, Plus, ReceiptText, Repeat, Trash2, WalletCards } from "lucide-react";
 import {
   formatPriceAmount,
   formatPriceType,
 } from "@/app/(protected)/products/[id]/_components/price-format";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -16,7 +17,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Customer } from "@/modules/customers/types";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import type { Customer, TaxId } from "@/modules/customers/types";
 import type { Invoice } from "@/modules/invoices/types";
 import type { PaymentMethod } from "@/modules/payment-methods/types";
 import type { Price } from "@/modules/prices/types";
@@ -53,6 +56,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [prices, setPrices] = useState<Price[]>([]);
+  const [taxIds, setTaxIds] = useState<TaxId[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +70,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         productsRes,
         subscriptionsRes,
         invoicesRes,
+        taxIdsRes,
       ] =
         await Promise.all([
           fetch(`/api/customers/${customerId}`),
@@ -87,6 +92,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               limit: "100",
             })}`
           ),
+          fetch(`/api/customers/${customerId}/tax_ids`),
         ]);
 
       if (!customerRes.ok) {
@@ -114,6 +120,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         throw new Error(data.error?.message ?? "Failed to load invoices");
       }
 
+      if (!taxIdsRes.ok) {
+        const data = await taxIdsRes.json();
+        throw new Error(data.error?.message ?? "Failed to load tax IDs");
+      }
+
       const customerData: Customer = await customerRes.json();
       const paymentMethodsData: StripeList<PaymentMethod> =
         await paymentMethodsRes.json();
@@ -121,6 +132,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       const subscriptionsData: StripeList<Subscription> =
         await subscriptionsRes.json();
       const invoicesData: StripeList<Invoice> = await invoicesRes.json();
+      const taxIdsData: StripeList<TaxId> = await taxIdsRes.json();
 
       const priceLists = await Promise.all(
         productsData.data.map(async (product) => {
@@ -149,6 +161,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       setInvoices(invoicesData.data);
       setProducts(productsData.data);
       setPrices(priceData);
+      setTaxIds(taxIdsData.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load customer");
       setCustomer(null);
@@ -157,6 +170,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       setInvoices([]);
       setProducts([]);
       setPrices([]);
+      setTaxIds([]);
     } finally {
       setLoading(false);
     }
@@ -278,8 +292,30 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               </p>
             </div>
           </div>
+
+          {customer.address && (
+            <div className="rounded-xl border bg-muted/40 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                <MapPin className="mr-1 inline size-3" />
+                Address
+              </p>
+              <p className="mt-2 text-sm font-medium">
+                {[
+                  customer.address.line1,
+                  customer.address.line2,
+                  [customer.address.city, customer.address.state].filter(Boolean).join(", "),
+                  customer.address.postal_code,
+                  customer.address.country,
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </p>
+            </div>
+          )}
         </div>
       </div>
+
+      <TaxIdSection customerId={customer.id} taxIds={taxIds} onChanged={refresh} />
 
       {error ? (
         <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -572,6 +608,160 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         detached payment method is the default for an active subscription, that
         subscription is canceled immediately.
       </div>
+    </div>
+  );
+}
+
+function TaxIdSection({
+  customerId,
+  taxIds,
+  onChanged,
+}: {
+  customerId: string;
+  taxIds: TaxId[];
+  onChanged: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    const formData = new FormData(e.currentTarget);
+    const body = {
+      type: formData.get("type") as string,
+      value: (formData.get("value") as string).trim(),
+    };
+
+    const res = await fetch(`/api/customers/${customerId}/tax_ids`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error?.message ?? "Something went wrong");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    setShowForm(false);
+    onChanged();
+  }
+
+  async function handleDelete(taxIdId: string) {
+    setLoading(true);
+    setError(null);
+
+    const res = await fetch(
+      `/api/customers/${customerId}/tax_ids/${taxIdId}`,
+      { method: "DELETE" }
+    );
+
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error?.message ?? "Something went wrong");
+    }
+
+    setLoading(false);
+    onChanged();
+  }
+
+  return (
+    <div className="rounded-xl border">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div>
+          <h2 className="font-medium">Tax IDs</h2>
+          <p className="text-sm text-muted-foreground">
+            Tax identification numbers for this customer.
+          </p>
+        </div>
+        {taxIds.length === 0 && !showForm && (
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            <Plus data-icon="inline-start" />
+            Add tax ID
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mx-4 mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {taxIds.length > 0 && (
+        <div className="px-4 py-3">
+          {taxIds.map((taxId) => (
+            <div key={taxId.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Badge variant="outline">{taxId.type}</Badge>
+                <span className="text-sm font-medium">{taxId.value}</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                  {taxId.id}
+                </code>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={loading}
+                onClick={() => handleDelete(taxId.id)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {taxIds.length === 0 && !showForm && (
+        <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+          No tax IDs on file.
+        </div>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="flex items-end gap-3 px-4 py-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="tax-id-type">Type</Label>
+            <select
+              id="tax-id-type"
+              name="type"
+              defaultValue="ar_cuit"
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="ar_cuit">CUIT</option>
+              <option value="ar_cuil">CUIL</option>
+            </select>
+          </div>
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Label htmlFor="tax-id-value">Value</Label>
+            <Input
+              id="tax-id-value"
+              name="value"
+              placeholder="e.g. 30-12345678-9"
+              required
+              autoFocus
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={loading}>
+            {loading ? "Adding..." : "Add"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => { setShowForm(false); setError(null); }}
+          >
+            Cancel
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

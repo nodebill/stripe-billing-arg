@@ -113,6 +113,23 @@ export const customers = pgTable("customers", {
     .$type<Record<string, string>>()
     .default({})
     .notNull(),
+  address:
+    jsonb("address").$type<{
+      line1: string;
+      line2?: string;
+      city?: string;
+      state?: string;
+      postal_code?: string;
+      country?: string;
+    } | null>(),
+  taxId:
+    jsonb("tax_id").$type<{
+      id: string;
+      type: string;
+      value: string;
+      customer: string;
+      created: number;
+    } | null>(),
   livemode: boolean("livemode").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
