@@ -70,7 +70,7 @@ export default async function AcceptInvitePage({
     <div className="space-y-6">
       <div className="space-y-2">
         <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Invite</p>
-        <h1 className="text-2xl font-semibold">Join Havana</h1>
+        <h1 className="text-2xl font-semibold">Join Pentos</h1>
         <p className="text-sm text-muted-foreground">
           You are accepting an invitation for <strong>{invite.email}</strong>.
         </p>

@@ -44,7 +44,7 @@ export default async function SignInPage({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Havana</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Pentos</p>
         <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="text-sm text-muted-foreground">
           The console and API are private. Use your personal credentials to enter.

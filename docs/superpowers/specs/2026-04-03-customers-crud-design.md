@@ -2,7 +2,7 @@
 
 ## Context
 
-The Havana billing system already has Products and Prices CRUD. Customers is the next resource needed to complete the core billing model. The implementation mirrors Stripe's Customer API with a minimal field set — just enough for create, update, delete, and list operations. No balance, phone, address, or tax fields.
+The Pentos billing system already has Products and Prices CRUD. Customers is the next resource needed to complete the core billing model. The implementation mirrors Stripe's Customer API with a minimal field set — just enough for create, update, delete, and list operations. No balance, phone, address, or tax fields.
 
 ## Data Model
 

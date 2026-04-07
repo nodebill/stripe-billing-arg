@@ -27,15 +27,19 @@ function getSecret() {
 }
 
 function getAllowedHosts() {
-  const hosts = new Set<string>([
-    "localhost:3000",
-    "127.0.0.1:3000",
-    "*-talopaymentsgmailcoms-projects.vercel.app",
-  ]);
+  const hosts = new Set<string>(["localhost:3000", "127.0.0.1:3000"]);
   const productionHost = process.env.BETTER_AUTH_PRODUCTION_HOST?.trim();
+  const extraHosts = process.env.BETTER_AUTH_ALLOWED_HOSTS
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   if (productionHost) {
     hosts.add(normalizeHost(productionHost));
+  }
+
+  for (const host of extraHosts ?? []) {
+    hosts.add(normalizeHost(host));
   }
 
   return [...hosts];
@@ -70,7 +74,7 @@ function getTrustedOrigins() {
 }
 
 export const auth = betterAuth({
-  appName: "Havana",
+  appName: "Pentos",
   baseURL: {
     allowedHosts: getAllowedHosts(),
     fallback: getFallbackURL(),
@@ -130,7 +134,7 @@ export const auth = betterAuth({
         {
           configId: MACHINE_API_KEY_CONFIG_ID,
           apiKeyHeaders: ["x-api-key"],
-          defaultPrefix: "hvn_",
+          defaultPrefix: "pnt_",
           rateLimit: {
             enabled: true,
             maxRequests: 1000,

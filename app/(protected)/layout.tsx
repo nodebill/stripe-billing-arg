@@ -31,7 +31,7 @@ export default async function ProtectedLayout({
       <nav className="border-b">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-6 px-6 py-3">
           <Link href="/" className="text-sm font-semibold">
-            Havana
+            Pentos
           </Link>
           <Link
             href="/products"

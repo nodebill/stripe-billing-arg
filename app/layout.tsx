@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Havana",
+  title: "Pentos",
   description: "Argentine billing system",
 };
 
