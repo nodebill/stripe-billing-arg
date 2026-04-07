@@ -359,6 +359,12 @@ const bootstrapStatements = [
   `
     ALTER TABLE meter_events DROP COLUMN IF EXISTS organization_id
   `,
+  `
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS address JSONB
+  `,
+  `
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS tax_id JSONB
+  `,
 ] as const;
 
 declare global {

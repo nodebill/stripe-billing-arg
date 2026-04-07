@@ -9,10 +9,13 @@ import {
 import type { StripeList, StripeSearchResult } from "@/modules/shared/types";
 import type {
   CreateCustomerInput,
+  CreateTaxIdInput,
   Customer,
   DeleteCustomerResult,
+  DeletedTaxId,
   ListCustomersParams,
   SearchCustomersParams,
+  TaxId,
   UpdateCustomerInput,
 } from "./types";
 
@@ -23,10 +26,24 @@ function toCustomer(row: typeof customers.$inferSelect): Customer {
     name: row.name,
     email: row.email,
     description: row.description,
+    address: row.address ?? null,
     metadata: row.metadata,
     livemode: row.livemode,
     created: Math.floor(row.createdAt.getTime() / 1000),
     updated: Math.floor(row.updatedAt.getTime() / 1000),
+  };
+}
+
+function toTaxId(
+  stored: NonNullable<typeof customers.$inferSelect["taxId"]>
+): TaxId {
+  return {
+    id: stored.id,
+    object: "tax_id",
+    type: stored.type,
+    value: stored.value,
+    customer: stored.customer,
+    created: stored.created,
   };
 }
 
@@ -46,6 +63,7 @@ export async function createCustomer(
       name: input.name ?? null,
       email: input.email ?? null,
       description: input.description ?? null,
+      address: input.address ?? null,
       metadata: input.metadata ?? {},
       livemode: false,
       createdAt: new Date(now * 1000),
@@ -83,6 +101,7 @@ export async function updateCustomer(
   if (input.name !== undefined) values.name = input.name;
   if (input.email !== undefined) values.email = input.email;
   if (input.description !== undefined) values.description = input.description;
+  if (input.address !== undefined) values.address = input.address;
   if (input.metadata !== undefined) values.metadata = input.metadata;
 
   const rows = await db
@@ -244,4 +263,86 @@ export async function searchCustomers(
     next_page: hasMore ? data[data.length - 1]?.id ?? null : null,
     url: "/api/customers/search",
   };
+}
+
+// --- Tax ID sub-resource ---
+
+export async function createTaxId(
+  customerId: string,
+  input: CreateTaxIdInput
+): Promise<TaxId | "not_found" | "already_exists"> {
+  await ensureTables();
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+
+  if (rows.length === 0) return "not_found";
+  if (rows[0].taxId) return "already_exists";
+
+  const taxIdObj = {
+    id: `txi_${nanoid()}`,
+    type: input.type,
+    value: input.value,
+    customer: customerId,
+    created: Math.floor(Date.now() / 1000),
+  };
+
+  await db
+    .update(customers)
+    .set({ taxId: taxIdObj, updatedAt: new Date() })
+    .where(eq(customers.id, customerId));
+
+  return toTaxId(taxIdObj);
+}
+
+export async function listTaxIds(
+  customerId: string
+): Promise<StripeList<TaxId> | "not_found"> {
+  await ensureTables();
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+
+  if (rows.length === 0) return "not_found";
+
+  const data = rows[0].taxId ? [toTaxId(rows[0].taxId)] : [];
+
+  return {
+    object: "list",
+    data,
+    has_more: false,
+    url: `/api/customers/${customerId}/tax_ids`,
+  };
+}
+
+export async function deleteTaxId(
+  customerId: string,
+  taxIdId: string
+): Promise<DeletedTaxId | "not_found" | "tax_id_not_found"> {
+  await ensureTables();
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+
+  if (rows.length === 0) return "not_found";
+  if (!rows[0].taxId || rows[0].taxId.id !== taxIdId) return "tax_id_not_found";
+
+  await db
+    .update(customers)
+    .set({ taxId: null, updatedAt: new Date() })
+    .where(eq(customers.id, customerId));
+
+  return { id: taxIdId, object: "tax_id", deleted: true };
 }
