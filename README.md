@@ -2,6 +2,8 @@
 
 Pentos is a Stripe-inspired billing sandbox for Argentina. It includes a small admin console and API for managing products, prices, customers, subscriptions, invoices, and metered billing.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnodebill%2Fstripe-billing-arg&env=DATABASE_URL,BETTER_AUTH_PRODUCTION_HOST,BETTER_AUTH_ALLOWED_HOSTS,BETTER_AUTH_TRUSTED_ORIGINS,BILLING_PROCESSOR_SECRET,CRON_SECRET,BETTER_AUTH_SECRET,BETTER_AUTH_URL&envDescription=Env%20variables%20to%20set%20up%20better%20auth%20and%20database)
+
 Import this repository into Vercel and provide the environment variables listed below.
 
 ## Capabilities
