@@ -49,6 +49,56 @@ Rules:
 - `proration_behavior=create_prorations` creates an immediate invoice only when the subscription is anchored or backdated.
 - Metered prices only support `proration_behavior=none` when an initial proration would otherwise be required.
 
+## `POST /api/subscriptions/import`
+
+Creates many subscriptions from one uploaded CSV file.
+
+Request format:
+- `multipart/form-data`
+- `file`: UTF-8 CSV text
+
+Required CSV headers:
+- `customer`
+- `price`
+- `collection_method`
+- `default_payment_method`
+- `billing_cycle_mode`
+- `billing_day_of_month`
+- `billing_month`
+- `backdate_start_date`
+- `proration_behavior`
+
+Canonical example:
+
+```csv
+customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior
+cus_123,price_123,charge_automatically,pm_123,start_today,,,,
+cus_456,price_456,send_invoice,,align_renewal,15,,,
+cus_789,price_789,charge_automatically,pm_789,backdate_start,,,2026-04-01,none
+```
+
+Rules:
+- The CSV is multi-customer and each row must reference an existing `cus_...` customer ID.
+- `customer` and `price` are always required.
+- `collection_method` accepts blank, `charge_automatically`, or `send_invoice`. Blank defaults to `charge_automatically`.
+- `default_payment_method` is required only when `collection_method=charge_automatically`.
+- `billing_cycle_mode` accepts blank, `start_today`, `align_renewal`, or `backdate_start`. Blank defaults to `start_today`.
+- `billing_day_of_month` is required only when `billing_cycle_mode=align_renewal`.
+- `billing_month` is optional and only applies to yearly prices when `billing_cycle_mode=align_renewal`.
+- `backdate_start_date` is required only when `billing_cycle_mode=backdate_start` and must use `YYYY-MM-DD`.
+- `proration_behavior` accepts blank, `create_prorations`, or `none`. Blank defaults to `create_prorations`.
+- Existing subscription rules still apply for customer existence, active recurring prices, payment methods, metered conflicts, and proration restrictions.
+- Unknown headers, duplicate headers, missing required headers, unreadable CSV, and empty files are rejected with `400`.
+- Row validation failures return partial success instead of aborting the whole import.
+
+Success response:
+- `object: "subscription_import"`
+- `total_rows`
+- `created_count`
+- `failed_count`
+- `created`
+- `errors: Array<{ row, message }>`
+
 ## `GET /api/subscriptions/:id`
 
 Returns a single subscription.

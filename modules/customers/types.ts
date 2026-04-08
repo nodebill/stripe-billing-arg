@@ -28,6 +28,45 @@ export type CreateCustomerInput = {
   metadata?: Record<string, string>;
 };
 
+export type ImportedCustomerCsvRow = {
+  row: number;
+  name: string;
+  email: string;
+  description: string;
+  external_id: string;
+  address_line1: string;
+  address_line2: string;
+  address_city: string;
+  address_state: string;
+  address_postal_code: string;
+  address_country: string;
+};
+
+export type CustomerImportError = {
+  row: number;
+  message: string;
+};
+
+export type CustomerImportResult = {
+  object: "customer_import";
+  total_rows: number;
+  created_count: number;
+  failed_count: number;
+  created: Customer[];
+  errors: CustomerImportError[];
+};
+
+export type CustomerImportParsedCsv = {
+  rows: ImportedCustomerCsvRow[];
+  errors: CustomerImportError[];
+  totalRows: number;
+};
+
+export type CustomerImportOperationResult = {
+  type: "file_error";
+  message: string;
+};
+
 export type UpdateCustomerInput = {
   name?: string | null;
   email?: string | null;

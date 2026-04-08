@@ -51,6 +51,44 @@ export type CreateSubscriptionInput = {
   }>;
 };
 
+export type ImportedSubscriptionCsvRow = {
+  row: number;
+  customer: string;
+  price: string;
+  collection_method: string;
+  default_payment_method: string;
+  billing_cycle_mode: string;
+  billing_day_of_month: string;
+  billing_month: string;
+  backdate_start_date: string;
+  proration_behavior: string;
+};
+
+export type SubscriptionImportError = {
+  row: number;
+  message: string;
+};
+
+export type SubscriptionImportResult = {
+  object: "subscription_import";
+  total_rows: number;
+  created_count: number;
+  failed_count: number;
+  created: Subscription[];
+  errors: SubscriptionImportError[];
+};
+
+export type SubscriptionImportParsedCsv = {
+  rows: ImportedSubscriptionCsvRow[];
+  errors: SubscriptionImportError[];
+  totalRows: number;
+};
+
+export type SubscriptionImportOperationResult = {
+  type: "file_error";
+  message: string;
+};
+
 export type UpdateSubscriptionInput = {
   cancel_at_period_end: boolean;
 };

@@ -21,6 +21,8 @@ import type {
 import { CreateCustomerDialog } from "./create-customer-dialog";
 import { DeleteCustomerDialog } from "./delete-customer-dialog";
 import { EditCustomerDialog } from "./edit-customer-dialog";
+import { ImportCustomersDialog } from "./import-customers-dialog";
+import { ImportSubscriptionsDialog } from "./import-subscriptions-dialog";
 
 export function CustomersView() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -185,7 +187,11 @@ export function CustomersView() {
               : "Search loaded customers by name, email, or ID, and remotely by exact external ID."}
           </p>
         </div>
-        <CreateCustomerDialog onCreated={refresh} />
+        <div className="flex flex-wrap gap-2">
+          <ImportCustomersDialog onCreated={refresh} />
+          <ImportSubscriptionsDialog onCreated={refresh} />
+          <CreateCustomerDialog onCreated={refresh} />
+        </div>
       </div>
 
       {/* Content */}
@@ -217,7 +223,10 @@ export function CustomersView() {
               Add your first customer to get started.
             </p>
           </div>
-          <CreateCustomerDialog onCreated={refresh} />
+          <div className="flex flex-wrap justify-center gap-2">
+            <ImportCustomersDialog onCreated={refresh} />
+            <CreateCustomerDialog onCreated={refresh} />
+          </div>
         </div>
       ) : (
         <div className="rounded-xl border">
