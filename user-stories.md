@@ -42,8 +42,10 @@
 - As an operator, I can open a customer detail page and review renewal invoices and mocked invoice deliveries for that customer.
 - As an operator, I can cancel a subscription immediately.
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
+- As an operator, I can schedule a temporary discount or a future price change for an existing subscription without issuing an immediate proration invoice.
 - As an operator, the system processes due subscriptions in the background, creates renewal invoices, and either mocks an automatic payment or mocks sending an invoice based on the subscription collection method.
 - As an operator, a metered subscription renewal bills the usage recorded during the period that just ended.
 - As an operator, a metered renewal can multiply whole-number usage by a decimal per-unit amount and round once to the nearest minor unit on the invoice line item.
+- As an operator, when a subscription price changes mid-cycle, the renewal invoice reflects each pricing segment as separate line items instead of collapsing the whole cycle into one amount.
 - As an operator, I can see when a send-invoice renewal has become past due.
 - As an operator, I cannot delete a customer while they still have active or past-due subscriptions.

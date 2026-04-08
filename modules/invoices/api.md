@@ -16,6 +16,9 @@ Query params:
 
 Returns a single invoice.
 
+Rules:
+- Renewal invoices may contain multiple stored line items when pricing changed mid-cycle through a subscription schedule.
+
 ## `POST /api/internal/billing/process`
 
 Runs one background billing processor pass.

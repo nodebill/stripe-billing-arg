@@ -1,0 +1,1 @@
+ALTER TABLE "subscription_schedules" ADD COLUMN "baseline_price_id" text NOT NULL;

@@ -12,6 +12,8 @@ import {
   paymentMethods,
   prices,
   products,
+  subscriptionSchedulePhases,
+  subscriptionSchedules,
   subscriptionItems,
   subscriptions,
   customers,
@@ -22,6 +24,7 @@ import {
   getBillingProcessorState,
   markOverdueInvoices,
   processDueSubscriptions,
+  processSchedulePhaseTransitions,
 } from "../modules/billing/service";
 import { deleteCustomer, createCustomer } from "../modules/customers/service";
 import { listInvoices } from "../modules/invoices/service";
@@ -34,6 +37,11 @@ import {
 } from "../modules/payment-methods/service";
 import { createPrice, updatePrice } from "../modules/prices/service";
 import { createProduct } from "../modules/products/service";
+import {
+  createSubscriptionSchedule,
+  getSubscriptionSchedule,
+  updateSubscriptionSchedule,
+} from "../modules/subscription-schedules/service";
 import {
   createSubscription,
   getSubscription,
@@ -56,6 +64,8 @@ async function resetDb() {
   await db.delete(invoiceDeliveries);
   await db.delete(invoiceLineItems);
   await db.delete(invoices);
+  await db.delete(subscriptionSchedulePhases);
+  await db.delete(subscriptionSchedules);
   await db.delete(subscriptionItems);
   await db.delete(subscriptions);
   await db.delete(meterEvents);
@@ -159,6 +169,54 @@ async function createMeteredFixture(
     meter,
     price,
   };
+}
+
+async function createRecurringPriceForProduct(
+  productId: string,
+  unitAmount: number
+) {
+  const price = await createPrice({
+    product: productId,
+    currency: "usd",
+    unit_amount: unitAmount,
+    type: "recurring",
+    recurring: {
+      interval: "month",
+      interval_count: 1,
+      usage_type: "licensed",
+    },
+  });
+
+  if (!price || "error" in price) {
+    throw new Error("Expected recurring price to be created");
+  }
+
+  return price;
+}
+
+async function createMeteredRecurringPriceForProduct(
+  productId: string,
+  meterId: string,
+  unitAmount: number
+) {
+  const price = await createPrice({
+    product: productId,
+    currency: "usd",
+    unit_amount: unitAmount,
+    type: "recurring",
+    recurring: {
+      interval: "month",
+      interval_count: 1,
+      usage_type: "metered",
+    },
+    meter: meterId,
+  });
+
+  if (!price || "error" in price) {
+    throw new Error("Expected metered recurring price to be created");
+  }
+
+  return price;
 }
 
 async function expireSubscription(
@@ -925,6 +983,301 @@ test("billing processor stores its last run summary in processor state", async (
   const state = await getBillingProcessorState();
   assert.equal(state.last_summary?.created_invoices, 1);
   assert.equal(state.last_summary?.paid_invoices, 1);
+});
+
+test("future schedules become active when their first phase starts", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const futurePrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    5000
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+
+  const startDate = Math.floor(Date.now() / 1000) + 3600;
+  const schedule = await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: futurePrice.id,
+        start_date: startDate,
+        end_date: startDate + 7 * 24 * 60 * 60,
+      },
+    ],
+  });
+
+  assert.equal(schedule.status, "not_started");
+
+  await processSchedulePhaseTransitions(new Date((startDate + 60) * 1000));
+
+  const activated = await getSubscriptionSchedule(schedule.id);
+  assert.equal(activated?.status, "active");
+
+  const itemRows = await getDb()
+    .select()
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.subscriptionId, subscription.id))
+    .limit(1);
+
+  assert.equal(itemRows[0]?.priceId, futurePrice.id);
+});
+
+test("updating a schedule keeps the current phase and only replaces future phases", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const discountPrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    1000
+  );
+  const futurePrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    1500
+  );
+  const replacementPrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    1750
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    default_payment_method: fixture.paymentMethod.id,
+    items: [{ price: fixture.price.id }],
+  });
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const schedule = await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: discountPrice.id,
+        start_date: nowUnix - 3600,
+        end_date: nowUnix + 3600,
+      },
+      {
+        price: futurePrice.id,
+        start_date: nowUnix + 3600,
+        end_date: nowUnix + 7200,
+      },
+    ],
+  });
+
+  const updated = await updateSubscriptionSchedule(schedule.id, {
+    phases: [
+      {
+        price: replacementPrice.id,
+        start_date: nowUnix + 3600,
+        end_date: nowUnix + 7200,
+      },
+    ],
+  });
+
+  assert.equal(updated.status, "active");
+  assert.equal(updated.phases.length, 2);
+  assert.equal(updated.phases[0]?.price, discountPrice.id);
+  assert.equal(updated.phases[1]?.price, replacementPrice.id);
+
+  const itemRows = await getDb()
+    .select()
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.subscriptionId, subscription.id))
+    .limit(1);
+
+  assert.equal(itemRows[0]?.priceId, discountPrice.id);
+});
+
+test("licensed renewals segment invoice line items across old and new mid-cycle prices", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const newPrice = await createRecurringPriceForProduct(fixture.product.id, 5000);
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id);
+  const midpointUnix = Math.floor(
+    (pastStart.getTime() + (pastEnd.getTime() - pastStart.getTime()) / 2) / 1000
+  );
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: newPrice.id,
+        start_date: midpointUnix,
+        end_date: midpointUnix + 90 * 24 * 60 * 60,
+      },
+    ],
+  });
+
+  await processDueSubscriptions({ runAt: new Date() });
+
+  const invoiceRows = await getDb().select().from(invoices).limit(1);
+  const lineItemRows = await getDb()
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceRows[0]!.id))
+    .orderBy(invoiceLineItems.periodStart);
+
+  assert.equal(lineItemRows.length, 2);
+  assert.equal(lineItemRows[0]?.priceId, fixture.price.id);
+  assert.equal(lineItemRows[0]?.amount, 1250);
+  assert.equal(lineItemRows[1]?.priceId, newPrice.id);
+  assert.equal(lineItemRows[1]?.amount, 2500);
+  assert.equal(invoiceRows[0]?.subtotal, 3750);
+});
+
+test("metered renewals segment usage by price change boundaries", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 100 });
+  const lowerPrice = await createMeteredRecurringPriceForProduct(
+    fixture.product.id,
+    fixture.meter.id,
+    25
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id);
+  const midpoint = new Date(
+    pastStart.getTime() + (pastEnd.getTime() - pastStart.getTime()) / 2
+  );
+
+  await createMeterEvent({
+    event_name: fixture.meter.event_name,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 10,
+    },
+    timestamp: Math.floor((pastStart.getTime() + 60_000) / 1000),
+  });
+
+  await createMeterEvent({
+    event_name: fixture.meter.event_name,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 4,
+    },
+    timestamp: Math.floor((midpoint.getTime() + 60_000) / 1000),
+  });
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: lowerPrice.id,
+        start_date: Math.floor(midpoint.getTime() / 1000),
+        end_date: Math.floor(midpoint.getTime() / 1000) + 90 * 24 * 60 * 60,
+      },
+    ],
+  });
+
+  await processDueSubscriptions({ runAt: new Date() });
+
+  const invoiceRows = await getDb().select().from(invoices).limit(1);
+  const lineItemRows = await getDb()
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceRows[0]!.id))
+    .orderBy(invoiceLineItems.periodStart);
+
+  assert.equal(lineItemRows.length, 2);
+  assert.equal(lineItemRows[0]?.priceId, fixture.price.id);
+  assert.equal(lineItemRows[0]?.quantity, 10);
+  assert.equal(lineItemRows[0]?.amount, 1000);
+  assert.equal(lineItemRows[1]?.priceId, lowerPrice.id);
+  assert.equal(lineItemRows[1]?.quantity, 4);
+  assert.equal(lineItemRows[1]?.amount, 100);
+  assert.equal(invoiceRows[0]?.subtotal, 1100);
+});
+
+test("renewals keep past schedule segments after a temporary schedule has already released", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const discountPrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    1000
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const runAt = new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(runAt.getTime() - 24 * 60 * 60 * 1000);
+  const periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const discountStart = Math.floor(
+    (periodStart.getTime() + 10 * 24 * 60 * 60 * 1000) / 1000
+  );
+  const discountEnd = Math.floor(
+    (periodStart.getTime() + 15 * 24 * 60 * 60 * 1000) / 1000
+  );
+  const revertEnd = Math.floor(
+    (periodStart.getTime() + 20 * 24 * 60 * 60 * 1000) / 1000
+  );
+
+  await getDb()
+    .update(subscriptions)
+    .set({
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.id, subscription.id));
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: discountPrice.id,
+        start_date: discountStart,
+        end_date: discountEnd,
+      },
+      {
+        price: fixture.price.id,
+        start_date: discountEnd,
+        end_date: revertEnd,
+      },
+    ],
+  });
+
+  await processDueSubscriptions({ runAt });
+
+  const invoiceRows = await getDb().select().from(invoices).limit(1);
+  const lineItemRows = await getDb()
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceRows[0]!.id))
+    .orderBy(invoiceLineItems.periodStart);
+
+  assert.equal(lineItemRows.length, 3);
+  assert.deepEqual(
+    lineItemRows.map((row) => row.priceId),
+    [fixture.price.id, discountPrice.id, fixture.price.id]
+  );
+  assert.deepEqual(
+    lineItemRows.map((row) => row.amount),
+    [833, 167, 1250]
+  );
+  assert.equal(invoiceRows[0]?.subtotal, 2250);
 });
 
 test.after(async () => {
