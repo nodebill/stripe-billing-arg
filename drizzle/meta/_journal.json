@@ -36,6 +36,20 @@
       "when": 1775440139460,
       "tag": "0004_giant_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775622936026,
+      "tag": "0005_safe_shadowcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775626151515,
+      "tag": "0006_true_tigra",
+      "breakpoints": true
     }
   ]
 }

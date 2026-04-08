@@ -365,6 +365,46 @@ const bootstrapStatements = [
   `
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS tax_id JSONB
   `,
+  `
+    CREATE TABLE IF NOT EXISTS subscription_schedules (
+      id TEXT PRIMARY KEY NOT NULL,
+      subscription_id TEXT NOT NULL,
+      baseline_price_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      end_behavior TEXT NOT NULL,
+      current_phase_id TEXT,
+      released_at TIMESTAMPTZ,
+      canceled_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      livemode BOOLEAN DEFAULT false NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS subscription_schedules_subscription_id_idx
+    ON subscription_schedules (subscription_id)
+  `,
+  `
+    ALTER TABLE subscription_schedules
+    ADD COLUMN IF NOT EXISTS baseline_price_id TEXT
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS subscription_schedule_phases (
+      id TEXT PRIMARY KEY NOT NULL,
+      schedule_id TEXT NOT NULL,
+      price_id TEXT NOT NULL,
+      start_date TIMESTAMPTZ NOT NULL,
+      end_date TIMESTAMPTZ NOT NULL,
+      order_index INTEGER NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS subscription_schedule_phases_schedule_order_idx
+    ON subscription_schedule_phases (schedule_id, order_index)
+  `,
 ] as const;
 
 declare global {

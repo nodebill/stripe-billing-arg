@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
@@ -10,10 +10,15 @@ import {
   invoices,
   prices,
   subscriptionItems,
+  subscriptionSchedulePhases,
+  subscriptionSchedules,
   subscriptions,
 } from "@/infrastructure/database/schema";
 import { getMeterUsageTotal } from "@/modules/meter-events/service";
-import { multiplyIntegerByDecimalAndRound } from "@/modules/shared/fixed-decimal";
+import {
+  multiplyDecimalByFractionAndRound,
+  multiplyIntegerByDecimalAndRound,
+} from "@/modules/shared/fixed-decimal";
 import { addRecurringInterval, toUnix } from "@/modules/shared/time";
 import type {
   BillingProcessorState,
@@ -216,6 +221,415 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
   return loaded;
 }
 
+type PriceRow = typeof prices.$inferSelect;
+
+type InvoiceLineItemValue = {
+  priceId: string;
+  quantity: number;
+  amount: number;
+  currency: string;
+  periodStart: Date;
+  periodEnd: Date;
+};
+
+type PriceSegment = {
+  price: PriceRow;
+  segmentStart: Date;
+  segmentEnd: Date;
+};
+
+type EffectiveSchedulePhase = {
+  scheduleId: string;
+  priceId: string;
+  startDate: Date;
+  endDate: Date;
+  orderIndex: number;
+};
+
+function mergeAdjacentSegments(segments: PriceSegment[]) {
+  const merged: PriceSegment[] = [];
+
+  for (const segment of segments) {
+    if (segment.segmentStart.getTime() >= segment.segmentEnd.getTime()) {
+      continue;
+    }
+
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      previous.price.id === segment.price.id &&
+      previous.segmentEnd.getTime() === segment.segmentStart.getTime()
+    ) {
+      previous.segmentEnd = segment.segmentEnd;
+      continue;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return merged;
+}
+
+async function getScheduleSegments(
+  subscriptionId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  defaultPrice: PriceRow
+): Promise<PriceSegment[] | null> {
+  const db = getDb();
+
+  const scheduleRows = await db
+    .select()
+    .from(subscriptionSchedules)
+    .where(eq(subscriptionSchedules.subscriptionId, subscriptionId));
+
+  if (scheduleRows.length === 0) {
+    return null;
+  }
+
+  const scheduleMap = new Map(scheduleRows.map((row) => [row.id, row]));
+  const scheduleIds = scheduleRows.map((row) => row.id);
+
+  const phaseRows = await db
+    .select()
+    .from(subscriptionSchedulePhases)
+    .where(inArray(subscriptionSchedulePhases.scheduleId, scheduleIds))
+    .orderBy(
+      asc(subscriptionSchedulePhases.startDate),
+      asc(subscriptionSchedulePhases.orderIndex)
+    );
+
+  const effectivePhases: EffectiveSchedulePhase[] = [];
+
+  for (const phase of phaseRows) {
+    const schedule = scheduleMap.get(phase.scheduleId);
+    if (!schedule) {
+      continue;
+    }
+
+    const terminalAt =
+      schedule.canceledAt ?? schedule.releasedAt ?? schedule.completedAt ?? null;
+
+    if (
+      terminalAt &&
+      phase.startDate.getTime() >= terminalAt.getTime()
+    ) {
+      continue;
+    }
+
+    const effectiveEnd = terminalAt
+      ? new Date(Math.min(phase.endDate.getTime(), terminalAt.getTime()))
+      : phase.endDate;
+
+    if (
+      phase.startDate.getTime() >= periodEnd.getTime() ||
+      effectiveEnd.getTime() <= periodStart.getTime()
+    ) {
+      continue;
+    }
+
+    effectivePhases.push({
+      scheduleId: phase.scheduleId,
+      priceId: phase.priceId,
+      startDate: phase.startDate,
+      endDate: effectiveEnd,
+      orderIndex: phase.orderIndex,
+    });
+  }
+
+  if (effectivePhases.length === 0) {
+    return null;
+  }
+
+  const phasePriceIds = [
+    ...new Set([
+      defaultPrice.id,
+      ...scheduleRows.map((row) => row.baselinePriceId),
+      ...effectivePhases.map((phase) => phase.priceId),
+    ]),
+  ];
+  const phasePriceRows = await db
+    .select()
+    .from(prices)
+    .where(inArray(prices.id, phasePriceIds));
+
+  const phasePriceMap = new Map(phasePriceRows.map((p) => [p.id, p]));
+
+  const activeAtPeriodStart = [...effectivePhases]
+    .filter(
+      (phase) =>
+        phase.startDate.getTime() <= periodStart.getTime() &&
+        phase.endDate.getTime() > periodStart.getTime()
+    )
+    .sort(
+      (a, b) =>
+        b.startDate.getTime() - a.startDate.getTime() ||
+        b.orderIndex - a.orderIndex
+    )[0];
+
+  const latestPhaseBeforePeriodStart = [...effectivePhases]
+    .filter((phase) => phase.startDate.getTime() < periodStart.getTime())
+    .sort(
+      (a, b) =>
+        b.startDate.getTime() - a.startDate.getTime() ||
+        b.orderIndex - a.orderIndex
+    )[0];
+
+  const earliestUpcomingPhase = [...effectivePhases].sort(
+    (a, b) =>
+      a.startDate.getTime() - b.startDate.getTime() ||
+      a.orderIndex - b.orderIndex
+  )[0];
+
+  let currentPrice =
+    (activeAtPeriodStart &&
+      phasePriceMap.get(activeAtPeriodStart.priceId)) ??
+    (latestPhaseBeforePeriodStart &&
+      phasePriceMap.get(latestPhaseBeforePeriodStart.priceId)) ??
+    (earliestUpcomingPhase &&
+      phasePriceMap.get(
+        scheduleMap.get(earliestUpcomingPhase.scheduleId)?.baselinePriceId ??
+          ""
+      )) ??
+    defaultPrice;
+
+  const segments: PriceSegment[] = [];
+  let cursor = periodStart;
+
+  for (const phase of effectivePhases) {
+    const phasePrice = phasePriceMap.get(phase.priceId);
+    if (!phasePrice) {
+      continue;
+    }
+
+    const phaseStart = new Date(
+      Math.max(phase.startDate.getTime(), periodStart.getTime())
+    );
+    const phaseEnd = new Date(
+      Math.min(phase.endDate.getTime(), periodEnd.getTime())
+    );
+
+    if (phaseEnd.getTime() <= cursor.getTime()) {
+      currentPrice = phasePrice;
+      continue;
+    }
+
+    if (cursor.getTime() < phaseStart.getTime()) {
+      segments.push({
+        price: currentPrice,
+        segmentStart: cursor,
+        segmentEnd: phaseStart,
+      });
+    }
+
+    const segmentStart = new Date(
+      Math.max(cursor.getTime(), phaseStart.getTime())
+    );
+    if (segmentStart.getTime() < phaseEnd.getTime()) {
+      segments.push({
+        price: phasePrice,
+        segmentStart,
+        segmentEnd: phaseEnd,
+      });
+      cursor = phaseEnd;
+    }
+
+    currentPrice = phasePrice;
+  }
+
+  if (cursor.getTime() < periodEnd.getTime()) {
+    segments.push({
+      price: currentPrice,
+      segmentStart: cursor,
+      segmentEnd: periodEnd,
+    });
+  }
+
+  return mergeAdjacentSegments(segments);
+}
+
+async function buildLineItems(
+  subscription: SubscriptionRow,
+  defaultPrice: PriceRow,
+  usagePeriodStart: Date,
+  usagePeriodEnd: Date,
+  invoicePeriodStart: Date,
+  invoicePeriodEnd: Date,
+  runAt: Date
+): Promise<InvoiceLineItemValue[]> {
+  const segments = await getScheduleSegments(
+    subscription.id,
+    usagePeriodStart,
+    usagePeriodEnd,
+    defaultPrice
+  );
+
+  if (!segments) {
+    const usageQuantity = defaultPrice.meter
+      ? await getMeterUsageTotal(
+          defaultPrice.meter,
+          subscription.customerId,
+          Math.floor(usagePeriodStart.getTime() / 1000),
+          Math.floor(usagePeriodEnd.getTime() / 1000)
+        )
+      : 1;
+    const amount = defaultPrice.meter
+      ? multiplyIntegerByDecimalAndRound(
+          usageQuantity,
+          defaultPrice.unitAmountDecimal
+        )
+      : multiplyIntegerByDecimalAndRound(1, defaultPrice.unitAmountDecimal);
+    const lineItemPeriodStart = defaultPrice.meter
+      ? usagePeriodStart
+      : invoicePeriodStart;
+    const lineItemPeriodEnd = defaultPrice.meter
+      ? usagePeriodEnd
+      : invoicePeriodEnd;
+
+    return [
+      {
+        priceId: defaultPrice.id,
+        quantity: usageQuantity,
+        amount,
+        currency: defaultPrice.currency,
+        periodStart: lineItemPeriodStart,
+        periodEnd: lineItemPeriodEnd,
+      },
+    ];
+  }
+
+  const totalPeriodMs = BigInt(
+    usagePeriodEnd.getTime() - usagePeriodStart.getTime()
+  );
+
+  const items: InvoiceLineItemValue[] = [];
+
+  for (const segment of segments) {
+    if (defaultPrice.meter) {
+      const quantity = await getMeterUsageTotal(
+        defaultPrice.meter,
+        subscription.customerId,
+        Math.floor(segment.segmentStart.getTime() / 1000),
+        Math.floor(segment.segmentEnd.getTime() / 1000)
+      );
+      const amount = multiplyIntegerByDecimalAndRound(
+        quantity,
+        segment.price.unitAmountDecimal
+      );
+      items.push({
+        priceId: segment.price.id,
+        quantity,
+        amount,
+        currency: segment.price.currency,
+        periodStart: segment.segmentStart,
+        periodEnd: segment.segmentEnd,
+      });
+    } else {
+      const segmentMs = BigInt(
+        segment.segmentEnd.getTime() - segment.segmentStart.getTime()
+      );
+      const amount = multiplyDecimalByFractionAndRound(
+        segment.price.unitAmountDecimal,
+        segmentMs,
+        totalPeriodMs
+      );
+      items.push({
+        priceId: segment.price.id,
+        quantity: 1,
+        amount,
+        currency: segment.price.currency,
+        periodStart: segment.segmentStart,
+        periodEnd: segment.segmentEnd,
+      });
+    }
+  }
+
+  return items;
+}
+
+export async function processSchedulePhaseTransitions(runAt: Date) {
+  const db = getDb();
+
+  const schedulableRows = await db
+    .select()
+    .from(subscriptionSchedules)
+    .where(
+      inArray(subscriptionSchedules.status, ["active", "not_started"])
+    );
+
+  for (const schedule of schedulableRows) {
+    const phases = await db
+      .select()
+      .from(subscriptionSchedulePhases)
+      .where(eq(subscriptionSchedulePhases.scheduleId, schedule.id))
+      .orderBy(asc(subscriptionSchedulePhases.orderIndex));
+
+    const currentPhase = phases.find(
+      (p) =>
+        p.startDate.getTime() <= runAt.getTime() &&
+        p.endDate.getTime() > runAt.getTime()
+    );
+
+    const lastPhase = phases[phases.length - 1];
+    const allPhasesEnded =
+      lastPhase && lastPhase.endDate.getTime() <= runAt.getTime();
+
+    if (currentPhase) {
+      await db
+        .update(subscriptionSchedules)
+        .set({
+          status: "active",
+          currentPhaseId: currentPhase.id,
+          updatedAt: runAt,
+        })
+        .where(eq(subscriptionSchedules.id, schedule.id));
+
+      await db
+        .update(subscriptionItems)
+        .set({
+          priceId: currentPhase.priceId,
+          updatedAt: runAt,
+        })
+        .where(eq(subscriptionItems.subscriptionId, schedule.subscriptionId));
+
+      continue;
+    }
+
+    if (allPhasesEnded) {
+      if (schedule.endBehavior === "cancel") {
+        await db
+          .update(subscriptionSchedules)
+          .set({
+            status: "completed",
+            completedAt: runAt,
+            currentPhaseId: null,
+            updatedAt: runAt,
+          })
+          .where(eq(subscriptionSchedules.id, schedule.id));
+
+        await db
+          .update(subscriptions)
+          .set({
+            cancelAtPeriodEnd: true,
+            updatedAt: runAt,
+          })
+          .where(eq(subscriptions.id, schedule.subscriptionId));
+      } else {
+        await db
+          .update(subscriptionSchedules)
+          .set({
+            status: "released",
+            releasedAt: runAt,
+            currentPhaseId: null,
+            updatedAt: runAt,
+          })
+          .where(eq(subscriptionSchedules.id, schedule.id));
+      }
+      continue;
+    }
+  }
+}
+
 export async function createRenewalInvoices(runAt: Date) {
   await ensureTables();
   const db = getDb();
@@ -266,22 +680,20 @@ export async function createRenewalInvoices(runAt: Date) {
     }
 
     const invoiceId = `in_${nanoid()}`;
-    const lineItemId = `il_${nanoid()}`;
     const usagePeriodStart = subscription.currentPeriodStart;
     const usagePeriodEnd = subscription.currentPeriodEnd;
-    const usageQuantity = price.meter
-      ? await getMeterUsageTotal(price.meter,
-          subscription.customerId,
-          Math.floor(usagePeriodStart.getTime() / 1000),
-          Math.floor(usagePeriodEnd.getTime() / 1000)
-        )
-      : 1;
-    const lineItemAmount = multiplyIntegerByDecimalAndRound(
-      usageQuantity,
-      price.unitAmountDecimal
+
+    const lineItems = await buildLineItems(
+      subscription,
+      price,
+      usagePeriodStart,
+      usagePeriodEnd,
+      nextPeriodStart,
+      nextPeriodEnd,
+      runAt
     );
-    const lineItemPeriodStart = price.meter ? usagePeriodStart : nextPeriodStart;
-    const lineItemPeriodEnd = price.meter ? usagePeriodEnd : nextPeriodEnd;
+
+    const subtotal = lineItems.reduce((sum, li) => sum + li.amount, 0);
 
     await db.transaction(async (tx) => {
       await tx.insert(invoices).values({
@@ -291,8 +703,8 @@ export async function createRenewalInvoices(runAt: Date) {
         status: "draft",
         collectionMethod: subscription.collectionMethod,
         currency: price.currency,
-        subtotal: lineItemAmount,
-        amountDue: lineItemAmount,
+        subtotal,
+        amountDue: subtotal,
         amountPaid: 0,
         dueDate: null,
         periodStart: nextPeriodStart,
@@ -304,18 +716,20 @@ export async function createRenewalInvoices(runAt: Date) {
         updatedAt: runAt,
       });
 
-      await tx.insert(invoiceLineItems).values({
-        id: lineItemId,
-        invoiceId,
-        priceId: price.id,
-        quantity: usageQuantity,
-        amount: lineItemAmount,
-        currency: price.currency,
-        periodStart: lineItemPeriodStart,
-        periodEnd: lineItemPeriodEnd,
-        createdAt: runAt,
-        updatedAt: runAt,
-      });
+      for (const li of lineItems) {
+        await tx.insert(invoiceLineItems).values({
+          id: `il_${nanoid()}`,
+          invoiceId,
+          priceId: li.priceId,
+          quantity: li.quantity,
+          amount: li.amount,
+          currency: li.currency,
+          periodStart: li.periodStart,
+          periodEnd: li.periodEnd,
+          createdAt: runAt,
+          updatedAt: runAt,
+        });
+      }
     });
 
     createdInvoices += 1;
@@ -538,6 +952,8 @@ export async function processDueSubscriptions(
   const summary = emptySummary();
 
   try {
+    await processSchedulePhaseTransitions(runAt);
+
     const creation = await createRenewalInvoices(runAt);
     summary.processed_subscriptions = creation.processedSubscriptions;
     summary.canceled_subscriptions = creation.canceledSubscriptions;

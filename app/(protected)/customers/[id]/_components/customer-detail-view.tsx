@@ -27,6 +27,7 @@ import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
 import type { Subscription } from "@/modules/subscriptions/types";
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
+import { CreateSubscriptionScheduleDialog } from "./create-subscription-schedule-dialog";
 import { CreatePaymentMethodDialog } from "./create-payment-method-dialog";
 import { CreateSubscriptionDialog } from "./create-subscription-dialog";
 import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
@@ -387,6 +388,14 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                       formatPriceAmount(price.unit_amount_decimal, price.currency)
                     } • ${formatPriceType(price)}`
                   : subscription.items[0]?.price ?? "Unknown price";
+                const schedulePriceOptions = price
+                  ? activeRecurringPriceOptions.filter(
+                      (option) =>
+                        option.id !== price.id &&
+                        option.interval === price.recurring?.interval &&
+                        option.usageType === price.recurring?.usage_type
+                    )
+                  : [];
 
                 return (
                   <TableRow key={subscription.id}>
@@ -431,6 +440,14 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     <TableCell>
                       {subscription.status === "active" ? (
                         <div className="flex items-center justify-end gap-1">
+                          {price ? (
+                            <CreateSubscriptionScheduleDialog
+                              subscription={subscription}
+                              currentPrice={price}
+                              priceOptions={schedulePriceOptions}
+                              onCreated={refresh}
+                            />
+                          ) : null}
                           <ScheduleSubscriptionDialog
                             subscription={subscription}
                             onUpdated={refresh}

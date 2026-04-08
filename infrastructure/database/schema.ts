@@ -265,6 +265,63 @@ export const invoiceDeliveries = pgTable("invoice_deliveries", {
     .notNull(),
 });
 
+export const subscriptionSchedules = pgTable(
+  "subscription_schedules",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id").notNull(),
+    baselinePriceId: text("baseline_price_id").notNull(),
+    status: text("status")
+      .$type<
+        "not_started" | "active" | "completed" | "canceled" | "released"
+      >()
+      .notNull(),
+    endBehavior: text("end_behavior")
+      .$type<"release" | "cancel">()
+      .notNull(),
+    currentPhaseId: text("current_phase_id"),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    livemode: boolean("livemode").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("subscription_schedules_subscription_id_idx").on(
+      table.subscriptionId
+    ),
+  ]
+);
+
+export const subscriptionSchedulePhases = pgTable(
+  "subscription_schedule_phases",
+  {
+    id: text("id").primaryKey(),
+    scheduleId: text("schedule_id").notNull(),
+    priceId: text("price_id").notNull(),
+    startDate: timestamp("start_date", { withTimezone: true }).notNull(),
+    endDate: timestamp("end_date", { withTimezone: true }).notNull(),
+    orderIndex: integer("order_index").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("subscription_schedule_phases_schedule_order_idx").on(
+      table.scheduleId,
+      table.orderIndex
+    ),
+  ]
+);
+
 export const billingProcessorState = pgTable("billing_processor_state", {
   id: text("id").primaryKey(),
   leaseOwner: text("lease_owner"),
