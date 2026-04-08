@@ -4,6 +4,7 @@ import {
   priceIdSchema,
   productIdSchema,
 } from "@/modules/shared/validation";
+import type { CreatePriceInput, ImportedPriceInput } from "./types";
 
 const unitAmountDecimalSchema = z
   .string()
@@ -15,8 +16,7 @@ const unitAmountDecimalSchema = z
     message: "unit_amount_decimal must be greater than zero",
   });
 
-const basePriceSchema = {
-  product: productIdSchema,
+const sharedPriceFields = {
   currency: z
     .string()
     .regex(/^[a-z]{3}$/, "Currency must be a lowercase 3-letter code"),
@@ -31,70 +31,112 @@ const basePriceSchema = {
   active: z.boolean().optional(),
 } as const;
 
+const recurringShape = z
+  .object({
+    interval: z.enum(["month", "year"]),
+    interval_count: z.literal(1).optional(),
+    usage_type: z.enum(["licensed", "metered"]).optional(),
+  })
+  .transform((value) => ({
+    interval: value.interval,
+    interval_count: 1 as const,
+    usage_type: (value.usage_type ?? "licensed") as "licensed" | "metered",
+  }));
+
+function validateAmountFields(
+  data: {
+    unit_amount?: number;
+    unit_amount_decimal?: string;
+  },
+  ctx: z.core.$RefinementCtx<unknown>
+) {
+  const amountFields =
+    Number(data.unit_amount !== undefined) +
+    Number(data.unit_amount_decimal !== undefined);
+
+  if (amountFields !== 1) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Provide exactly one of unit_amount or unit_amount_decimal",
+    });
+  }
+}
+
+const createOneTimePriceSchema = z
+  .object({
+    product: productIdSchema,
+    ...sharedPriceFields,
+    type: z.literal("one_time"),
+  })
+  .strict()
+  .superRefine(validateAmountFields);
+
+const createRecurringPriceSchema = z
+  .object({
+    product: productIdSchema,
+    ...sharedPriceFields,
+    type: z.literal("recurring"),
+    recurring: recurringShape,
+    meter: meterIdSchema.optional(),
+  })
+  .strict()
+  .superRefine(validateAmountFields)
+  .refine(
+    (data) => {
+      if (data.recurring.usage_type === "metered") return data.meter != null;
+      return true;
+    },
+    { message: "meter is required when usage_type is 'metered'" }
+  )
+  .refine(
+    (data) => {
+      if (data.meter != null) return data.recurring.usage_type === "metered";
+      return true;
+    },
+    { message: "usage_type must be 'metered' when meter is provided" }
+  );
+
+const importedOneTimePriceSchema = z
+  .object({
+    ...sharedPriceFields,
+    type: z.literal("one_time"),
+  })
+  .strict()
+  .superRefine(validateAmountFields);
+
+const importedRecurringPriceSchema = z
+  .object({
+    ...sharedPriceFields,
+    type: z.literal("recurring"),
+    recurring: recurringShape,
+    meter: meterIdSchema.optional(),
+  })
+  .strict()
+  .superRefine(validateAmountFields)
+  .refine(
+    (data) => {
+      if (data.recurring.usage_type === "metered") return data.meter != null;
+      return true;
+    },
+    { message: "meter is required when usage_type is 'metered'" }
+  )
+  .refine(
+    (data) => {
+      if (data.meter != null) return data.recurring.usage_type === "metered";
+      return true;
+    },
+    { message: "usage_type must be 'metered' when meter is provided" }
+  );
+
 export const createPriceSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      ...basePriceSchema,
-      type: z.literal("one_time"),
-    })
-    .strict()
-    .superRefine((data, ctx) => {
-      const amountFields =
-        Number(data.unit_amount !== undefined) +
-        Number(data.unit_amount_decimal !== undefined);
+  createOneTimePriceSchema,
+  createRecurringPriceSchema,
+]) as unknown as z.ZodType<CreatePriceInput>;
 
-      if (amountFields !== 1) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Provide exactly one of unit_amount or unit_amount_decimal",
-        });
-      }
-    }),
-  z
-    .object({
-      ...basePriceSchema,
-      type: z.literal("recurring"),
-      recurring: z
-        .object({
-          interval: z.enum(["month", "year"]),
-          interval_count: z.literal(1).optional(),
-          usage_type: z.enum(["licensed", "metered"]).optional(),
-        })
-        .transform((value) => ({
-          interval: value.interval,
-          interval_count: 1 as const,
-          usage_type: (value.usage_type ?? "licensed") as "licensed" | "metered",
-        })),
-      meter: meterIdSchema.optional(),
-    })
-    .strict()
-    .superRefine((data, ctx) => {
-      const amountFields =
-        Number(data.unit_amount !== undefined) +
-        Number(data.unit_amount_decimal !== undefined);
-
-      if (amountFields !== 1) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Provide exactly one of unit_amount or unit_amount_decimal",
-        });
-      }
-    })
-    .refine(
-      (data) => {
-        if (data.recurring.usage_type === "metered") return data.meter != null;
-        return true;
-      },
-      { message: "meter is required when usage_type is 'metered'" }
-    )
-    .refine(
-      (data) => {
-        if (data.meter != null) return data.recurring.usage_type === "metered";
-        return true;
-      },
-      { message: "usage_type must be 'metered' when meter is provided" }
-    ),
-]);
+export const importedPriceRowSchema = z.discriminatedUnion("type", [
+  importedOneTimePriceSchema,
+  importedRecurringPriceSchema,
+]) as unknown as z.ZodType<ImportedPriceInput>;
 
 export const updatePriceSchema = z
   .object({

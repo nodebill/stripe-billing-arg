@@ -15,6 +15,7 @@
 - As an operator, I can create a one-time flat price for a product.
 - As an operator, I can create a recurring flat price for a product with a monthly or yearly billing interval.
 - As an operator, I can create a recurring metered price that points at one billing meter.
+- As an operator, I can upload one CSV on a product detail page to create many prices for that product at once, including metadata, and I can review per-row failures without losing successful rows.
 - As an operator, I can create a billing meter from the admin UI without leaving the meters area.
 - As an operator, when I am creating a metered price and there is no suitable meter yet, I can create one inline and continue the pricing flow.
 - As an operator, I can create a recurring metered price with `unit_amount_decimal` so a fee like 1% of processed volume can be modeled without introducing a custom pricing type.

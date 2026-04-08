@@ -17,6 +17,7 @@ import type { Meter } from "@/modules/meters/types";
 import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
+import { BulkCreatePricesDialog } from "./bulk-create-prices-dialog";
 import { CreatePriceDialog } from "./create-price-dialog";
 import { EditPriceDialog } from "./edit-price-dialog";
 import { formatPriceAmount, formatPriceType } from "./price-format";
@@ -190,12 +191,19 @@ export function ProductDetailView({ productId }: { productId: string }) {
                 {product.description || "No product description yet."}
               </p>
             </div>
-            <CreatePriceDialog
-              productId={product.id}
-              meterOptions={meterOptions}
-              onMeterCreated={handleMeterCreated}
-              onCreated={refresh}
-            />
+            <div className="flex flex-wrap gap-2">
+              <BulkCreatePricesDialog
+                productId={product.id}
+                meterOptions={meterOptions}
+                onCreated={refresh}
+              />
+              <CreatePriceDialog
+                productId={product.id}
+                meterOptions={meterOptions}
+                onMeterCreated={handleMeterCreated}
+                onCreated={refresh}
+              />
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
@@ -247,12 +255,19 @@ export function ProductDetailView({ productId }: { productId: string }) {
               Add your first price for this product.
             </p>
           </div>
-          <CreatePriceDialog
-            productId={product.id}
-            meterOptions={meterOptions}
-            onMeterCreated={handleMeterCreated}
-            onCreated={refresh}
-          />
+          <div className="flex flex-wrap justify-center gap-2">
+            <BulkCreatePricesDialog
+              productId={product.id}
+              meterOptions={meterOptions}
+              onCreated={refresh}
+            />
+            <CreatePriceDialog
+              productId={product.id}
+              meterOptions={meterOptions}
+              onMeterCreated={handleMeterCreated}
+              onCreated={refresh}
+            />
+          </div>
         </div>
       ) : (
         <div className="rounded-xl border">

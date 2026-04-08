@@ -62,6 +62,77 @@ export type UpdatePriceInput = {
   metadata?: Record<string, string>;
 };
 
+export type ImportedPriceInput =
+  | {
+      currency: string;
+      unit_amount?: number;
+      unit_amount_decimal?: string;
+      nickname?: string;
+      metadata?: Record<string, string>;
+      active?: boolean;
+      type: "one_time";
+    }
+  | {
+      currency: string;
+      unit_amount?: number;
+      unit_amount_decimal?: string;
+      nickname?: string;
+      metadata?: Record<string, string>;
+      active?: boolean;
+      type: "recurring";
+      recurring: {
+        interval: PriceInterval;
+        interval_count: 1;
+        usage_type: UsageType;
+      };
+      meter?: string;
+    };
+
+export type ImportedPriceCsvRow = {
+  row: number;
+  currency: string;
+  type: string;
+  unit_amount: string;
+  unit_amount_decimal: string;
+  nickname: string;
+  active: string;
+  interval: string;
+  usage_type: string;
+  meter: string;
+  metadata: Record<string, string>;
+};
+
+export type BulkPriceImportError = {
+  row: number;
+  message: string;
+};
+
+export type BulkPriceImportResult = {
+  object: "price_import";
+  product: string;
+  total_rows: number;
+  created_count: number;
+  failed_count: number;
+  created: Price[];
+  errors: BulkPriceImportError[];
+};
+
+export type PriceImportParsedCsv = {
+  rows: ImportedPriceCsvRow[];
+  errors: BulkPriceImportError[];
+  totalRows: number;
+};
+
+export type PriceImportOperationResult =
+  | {
+      type: "file_error";
+      message: string;
+    }
+  | {
+      type: "not_found";
+      message: string;
+    };
+
 export type ListPricesParams = {
   product: string;
   limit?: number;

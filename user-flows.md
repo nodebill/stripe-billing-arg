@@ -23,8 +23,10 @@
 5. For recurring prices, the interval options are limited to monthly and yearly, the operator can choose licensed or metered usage, and metered recurring prices require selecting one active meter.
 6. If the operator is creating a metered price and no active meter exists yet, the dialog offers an inline shortcut to create one without leaving `/products/[id]`.
 7. Metered recurring prices can use `unit_amount_decimal` for Stripe-style decimal billing, for example `0.01` to bill 1% of a meter that reports processed cents.
-8. The table shows the default price, archived state, and billing type.
-9. The user can edit mutable fields on a price or set an active price as default.
+8. The page also offers a bulk import dialog that explains the required CSV columns, shows an example file, lists active meter IDs, and uploads a CSV to `POST /api/products/:id/prices/import`.
+9. A bulk import refreshes the price list after processing. Successful rows create prices immediately, while row-level failures remain visible in the dialog with their CSV line numbers so the operator can fix and retry.
+10. The table shows the default price, archived state, and billing type.
+11. The user can edit mutable fields on a price or set an active price as default.
 
 ## Billing meters
 

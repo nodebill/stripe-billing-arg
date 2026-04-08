@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPriceSchema } from "../modules/prices/validation";
+import {
+  createPriceSchema,
+  importedPriceRowSchema,
+} from "../modules/prices/validation";
 
 const recurringBase = {
   product: "prod_test",
@@ -63,4 +66,47 @@ test("rejects invalid decimal amounts", () => {
 
   assert.equal(tooPrecise.success, false);
   assert.equal(zero.success, false);
+});
+
+test("accepts imported recurring rows without a product field", () => {
+  const parsed = importedPriceRowSchema.parse({
+    currency: "ars",
+    type: "recurring",
+    unit_amount_decimal: "0.01",
+    active: true,
+    metadata: {
+      region: "ar",
+    },
+    recurring: {
+      interval: "month",
+      interval_count: 1,
+      usage_type: "metered",
+    },
+    meter: "meter_test",
+  });
+
+  assert.equal(parsed.type, "recurring");
+  if (parsed.type !== "recurring") {
+    throw new Error("Expected recurring imported price");
+  }
+  assert.equal(parsed.recurring.interval_count, 1);
+  assert.equal(parsed.recurring.usage_type, "metered");
+});
+
+test("rejects imported metered rows without a meter id", () => {
+  const parsed = importedPriceRowSchema.safeParse({
+    currency: "ars",
+    type: "recurring",
+    unit_amount: 100,
+    recurring: {
+      interval: "month",
+      interval_count: 1,
+      usage_type: "metered",
+    },
+  });
+
+  assert.equal(parsed.success, false);
+  if (parsed.success) return;
+
+  assert.match(parsed.error.issues[0]?.message ?? "", /meter is required/i);
 });
