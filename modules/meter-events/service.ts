@@ -288,6 +288,72 @@ export async function createMeterEvent(
   return { created: true, event: toMeterEvent(row) };
 }
 
+export async function createMeterEventBulk(
+  input: CreateMeterEventInput
+): Promise<{ created: boolean; event: MeterEvent }> {
+  const count = input.count ?? 1;
+
+  if (count === 1) {
+    return createMeterEvent(input);
+  }
+
+  await ensureTables();
+  const db = getDb();
+
+  const meter = await getMeterByEventName(input.event_name);
+  if (!meter) {
+    throw new MeterEventError(
+      "invalid_request",
+      `No such meter for event_name: '${input.event_name}'`
+    );
+  }
+  if (meter.status !== "active") {
+    throw new MeterEventError(
+      "invalid_request",
+      `Meter '${meter.id}' is not active`
+    );
+  }
+
+  await assertCustomerExists(input.payload.stripe_customer_id);
+
+  const now = Math.floor(Date.now() / 1000);
+  const timestamp = input.timestamp ?? now;
+
+  if (timestamp < now - MAX_EVENT_AGE_SECONDS) {
+    throw new MeterEventError(
+      "invalid_request",
+      "timestamp must be within the last 35 days"
+    );
+  }
+
+  if (timestamp > now + MAX_FUTURE_SKEW_SECONDS) {
+    throw new MeterEventError(
+      "invalid_request",
+      "timestamp cannot be more than 5 minutes in the future"
+    );
+  }
+
+  const createdAt = new Date();
+  const eventTimestamp = new Date(timestamp * 1000);
+
+  const values = Array.from({ length: count }, () => ({
+    id: `mtevt_${nanoid()}`,
+    meterId: meter.id,
+    customerId: input.payload.stripe_customer_id,
+    identifier: `mtrid_${nanoid()}`,
+    eventName: input.event_name,
+    value: input.payload.value,
+    eventTimestamp,
+    livemode: false,
+    createdAt,
+    updatedAt: createdAt,
+  }));
+
+  const rows = await db.insert(meterEvents).values(values).returning();
+
+  return { created: true, event: toMeterEvent(rows[0]) };
+}
+
 export async function listMeterEventSummaries(
   meterId: string,
   params: ListMeterEventSummariesParams
