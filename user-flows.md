@@ -46,7 +46,7 @@
 
 1. The user opens `/customers`.
 2. The page lists customers and exposes create, edit, delete, customer CSV import, subscription CSV import, search, and navigation into a specific customer.
-3. The customer import dialog explains the required CSV columns for customer creation, shows an example file, and uploads to `POST /api/customers/import`.
+3. The customer import dialog explains the required CSV columns for customer creation, including the optional `tax_id_type` and `tax_id_value` pair plus the optional `payment_method_billing_name`, shows an example file, and uploads to `POST /api/customers/import`.
 4. The subscription import dialog explains the required CSV columns for multi-customer subscription creation, shows an example file, and uploads to `POST /api/subscriptions/import`.
 5. Both import dialogs refresh the page after processing. Successful rows create records immediately, while row-level failures remain visible in the dialog with their CSV line numbers so the operator can fix and retry.
 6. The search box filters loaded customers by name, email, or ID and also performs an exact remote search by `metadata.external_id`.

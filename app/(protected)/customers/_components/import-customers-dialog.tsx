@@ -5,7 +5,9 @@ import { Copy, FileSpreadsheet } from "lucide-react";
 import {
   CUSTOMER_IMPORT_EXAMPLE_CSV,
   CUSTOMER_IMPORT_METADATA_PREFIX,
+  CUSTOMER_IMPORT_PAYMENT_METHOD_HEADERS,
   CUSTOMER_IMPORT_STANDARD_HEADERS,
+  CUSTOMER_IMPORT_TAX_ID_HEADERS,
 } from "@/modules/customers/import-contract";
 import type { CustomerImportResult } from "@/modules/customers/types";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,9 @@ const columnDefinitions = [
   { header: "address_state", required: "Optional", notes: "State or province." },
   { header: "address_postal_code", required: "Optional", notes: "Postal or ZIP code." },
   { header: "address_country", required: "Optional", notes: "Two-letter or internal country code." },
+  { header: "tax_id_type", required: "Optional pair", notes: "Tax ID type, for example `ar_cuit` or `ar_cuil`. Use it together with `tax_id_value`." },
+  { header: "tax_id_value", required: "Optional pair", notes: "Tax ID number to persist on the customer. Use it together with `tax_id_type`." },
+  { header: "payment_method_billing_name", required: "Optional", notes: "Creates and attaches one custom payment method using this billing name so the customer can start with auto-charge." },
   { header: "metadata.*", required: "Optional", notes: "Any extra column prefixed with `metadata.` becomes one metadata entry." },
   { header: "external_id", required: "Legacy alias", notes: "Still maps to `metadata.external_id`, but `metadata.external_id` is preferred." },
 ] as const;
@@ -136,8 +141,8 @@ export function ImportCustomersDialog({
                 <p className="font-medium">Expected CSV structure</p>
                 <p className="text-sm text-muted-foreground">
                   Use the standard header set below. Extra columns are only
-                  allowed when they start with `metadata.`. This import is
-                  create-only.
+                  allowed when they start with `metadata.` or match the tax ID
+                  pair. This import is create-only.
                 </p>
               </div>
               <Table>
@@ -191,7 +196,9 @@ export function ImportCustomersDialog({
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Required headers: {CUSTOMER_IMPORT_STANDARD_HEADERS.join(", ")}.
-                Optional extra columns: {CUSTOMER_IMPORT_METADATA_PREFIX}*.
+                Optional extra columns: {CUSTOMER_IMPORT_TAX_ID_HEADERS.join(", ")}, {" "}
+                {CUSTOMER_IMPORT_PAYMENT_METHOD_HEADERS.join(", ")},{" "}
+                {CUSTOMER_IMPORT_METADATA_PREFIX}*.
               </p>
             </div>
           </div>

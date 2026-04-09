@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { eq } from "drizzle-orm";
 import { ensureTables, getDb } from "../infrastructure/database/client";
-import { customers } from "../infrastructure/database/schema";
+import { customers, paymentMethods } from "../infrastructure/database/schema";
 import {
   createCustomer,
   getCustomer,
+  listTaxIds,
   searchCustomers,
 } from "../modules/customers/service";
 
@@ -16,6 +17,7 @@ const runtime = globalThis as typeof globalThis & {
 
 async function resetDb() {
   await ensureTables();
+  await getDb().delete(paymentMethods);
   await getDb().delete(customers);
 }
 
@@ -47,6 +49,47 @@ test("customer creation persists arbitrary metadata including external_id", asyn
     external_id: "crm_123",
     source: "import",
   });
+});
+
+test("customer creation can persist a tax ID in the same insert", async () => {
+  await resetDb();
+
+  const created = await createCustomer({
+    email: "taxid@example.com",
+    taxId: {
+      type: "ar_cuit",
+      value: "30-12345678-9",
+    },
+  });
+
+  const taxIds = await listTaxIds(created.id);
+  assert.notEqual(taxIds, "not_found");
+  if (taxIds === "not_found") return;
+
+  assert.equal(taxIds.data.length, 1);
+  assert.equal(taxIds.data[0]?.type, "ar_cuit");
+  assert.equal(taxIds.data[0]?.value, "30-12345678-9");
+  assert.equal(taxIds.data[0]?.customer, created.id);
+  assert.match(taxIds.data[0]?.id ?? "", /^txi_/);
+  assert.equal(typeof taxIds.data[0]?.created, "number");
+});
+
+test("customer creation can create an attached custom payment method", async () => {
+  await resetDb();
+
+  const created = await createCustomer({
+    email: "pm@example.com",
+    paymentMethodBillingName: "Cuenta corriente",
+  });
+
+  const attachedPaymentMethods = await getDb()
+    .select()
+    .from(paymentMethods)
+    .where(eq(paymentMethods.customerId, created.id));
+
+  assert.equal(attachedPaymentMethods.length, 1);
+  assert.equal(attachedPaymentMethods[0]?.billingName, "Cuenta corriente");
+  assert.equal(attachedPaymentMethods[0]?.customerId, created.id);
 });
 
 test("customer search returns only exact external_id matches in descending order", async () => {

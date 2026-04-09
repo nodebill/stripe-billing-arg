@@ -25,6 +25,11 @@ export type CreateCustomerInput = {
   email?: string;
   description?: string;
   address?: Address;
+  paymentMethodBillingName?: string;
+  taxId?: {
+    type: string;
+    value: string;
+  };
   metadata?: Record<string, string>;
 };
 
@@ -39,6 +44,9 @@ export type ImportedCustomerCsvRow = {
   address_state: string;
   address_postal_code: string;
   address_country: string;
+  tax_id_type: string;
+  tax_id_value: string;
+  payment_method_billing_name: string;
   metadata: Record<string, string>;
 };
 

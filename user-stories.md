@@ -28,7 +28,7 @@
 
 ## Customer payment methods
 
-- As an operator, I can upload one CSV on `/customers` to create many customers at once, including `metadata.external_id` and address fields, and I can review per-row failures without losing successful rows.
+- As an operator, I can upload one CSV on `/customers` to create many customers at once, including `metadata.external_id`, address fields, one optional tax ID, and one optional attached custom payment method, and I can review per-row failures without losing successful rows.
 - As an operator, I can open a customer detail page and review the custom payment methods attached to that customer.
 - As an operator, I can create a custom payment method and immediately attach it to a customer without providing an internal type identifier.
 - As an operator, I can update the billing name on an attached custom payment method.

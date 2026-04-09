@@ -3,12 +3,15 @@ import { createCustomerSchema } from "./validation";
 import {
   CUSTOMER_IMPORT_LEGACY_METADATA_HEADERS,
   CUSTOMER_IMPORT_METADATA_PREFIX,
+  CUSTOMER_IMPORT_PAYMENT_METHOD_HEADERS,
   CUSTOMER_IMPORT_STANDARD_HEADERS,
+  CUSTOMER_IMPORT_TAX_ID_HEADERS,
 } from "./import-contract";
 import { createCustomer } from "./service";
 import type {
   Address,
   CreateCustomerInput,
+  CreateTaxIdInput,
   CustomerImportError,
   CustomerImportOperationResult,
   CustomerImportParsedCsv,
@@ -53,11 +56,35 @@ function validateHeaders(
     return badRequest(`Missing required CSV header: '${missingHeader}'`);
   }
 
+  const hasTaxIdTypeHeader = headers.includes("tax_id_type");
+  const hasTaxIdValueHeader = headers.includes("tax_id_value");
+  if (hasTaxIdTypeHeader !== hasTaxIdValueHeader) {
+    return badRequest(
+      "CSV headers 'tax_id_type' and 'tax_id_value' must be provided together"
+    );
+  }
+
   const invalidHeader = headers.find(
     (header) => {
       if (
         CUSTOMER_IMPORT_STANDARD_HEADERS.includes(
           header as (typeof CUSTOMER_IMPORT_STANDARD_HEADERS)[number]
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        CUSTOMER_IMPORT_TAX_ID_HEADERS.includes(
+          header as (typeof CUSTOMER_IMPORT_TAX_ID_HEADERS)[number]
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        CUSTOMER_IMPORT_PAYMENT_METHOD_HEADERS.includes(
+          header as (typeof CUSTOMER_IMPORT_PAYMENT_METHOD_HEADERS)[number]
         )
       ) {
         return false;
@@ -81,7 +108,7 @@ function validateHeaders(
 
   if (invalidHeader) {
     return badRequest(
-      `Unsupported CSV header: '${invalidHeader}'. Only metadata.* columns may extend the standard header set`
+      `Unsupported CSV header: '${invalidHeader}'. Only the tax ID pair, payment_method_billing_name, and metadata.* columns may extend the standard header set`
     );
   }
 
@@ -118,6 +145,26 @@ function normalizeImportedCustomerRow(
     if (addressValues.country) address.country = addressValues.country;
   }
 
+  const taxIdType = trimOptionalString(row.tax_id_type);
+  const taxIdValue = trimOptionalString(row.tax_id_value);
+  if ((taxIdType && !taxIdValue) || (!taxIdType && taxIdValue)) {
+    return {
+      error: {
+        row: row.row,
+        message:
+          "tax_id_type and tax_id_value must both be present when either is provided",
+      },
+    };
+  }
+
+  let taxId: CreateTaxIdInput | undefined;
+  if (taxIdType && taxIdValue) {
+    taxId = {
+      type: taxIdType,
+      value: taxIdValue,
+    };
+  }
+
   const parsed = createCustomerSchema.safeParse({
     name: trimOptionalString(row.name),
     email: trimOptionalString(row.email),
@@ -136,7 +183,15 @@ function normalizeImportedCustomerRow(
     };
   }
 
-  return { input: parsed.data };
+  return {
+    input: {
+      ...parsed.data,
+      paymentMethodBillingName: trimOptionalString(
+        row.payment_method_billing_name
+      ),
+      taxId,
+    },
+  };
 }
 
 export function parseCustomerImportCsv(
@@ -222,6 +277,9 @@ export function parseCustomerImportCsv(
       address_state: rawRow.address_state ?? "",
       address_postal_code: rawRow.address_postal_code ?? "",
       address_country: rawRow.address_country ?? "",
+      tax_id_type: rawRow.tax_id_type ?? "",
+      tax_id_value: rawRow.tax_id_value ?? "",
+      payment_method_billing_name: rawRow.payment_method_billing_name ?? "",
       metadata,
     });
   }
