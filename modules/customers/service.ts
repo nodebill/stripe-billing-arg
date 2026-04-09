@@ -6,6 +6,7 @@ import {
   paymentMethods,
   subscriptions,
 } from "@/infrastructure/database/schema";
+import { DEFAULT_CUSTOM_PAYMENT_METHOD_TYPE } from "@/modules/payment-methods/types";
 import type { StripeList, StripeSearchResult } from "@/modules/shared/types";
 import type {
   CreateCustomerInput,
@@ -47,6 +48,19 @@ function toTaxId(
   };
 }
 
+function buildTaxId(
+  customerId: string,
+  input: CreateTaxIdInput
+): NonNullable<typeof customers.$inferSelect["taxId"]> {
+  return {
+    id: `txi_${nanoid()}`,
+    type: input.type,
+    value: input.value,
+    customer: customerId,
+    created: Math.floor(Date.now() / 1000),
+  };
+}
+
 export async function createCustomer(
   input: CreateCustomerInput
 ): Promise<Customer> {
@@ -56,20 +70,39 @@ export async function createCustomer(
   const now = Math.floor(Date.now() / 1000);
   const id = `cus_${nanoid()}`;
 
-  const [row] = await db
-    .insert(customers)
-    .values({
-      id,
-      name: input.name ?? null,
-      email: input.email ?? null,
-      description: input.description ?? null,
-      address: input.address ?? null,
-      metadata: input.metadata ?? {},
-      livemode: false,
-      createdAt: new Date(now * 1000),
-      updatedAt: new Date(now * 1000),
-    })
-    .returning();
+  const [row] = await db.transaction(async (tx) => {
+    const [createdCustomer] = await tx
+      .insert(customers)
+      .values({
+        id,
+        name: input.name ?? null,
+        email: input.email ?? null,
+        description: input.description ?? null,
+        address: input.address ?? null,
+        taxId: input.taxId ? buildTaxId(id, input.taxId) : null,
+        metadata: input.metadata ?? {},
+        livemode: false,
+        createdAt: new Date(now * 1000),
+        updatedAt: new Date(now * 1000),
+      })
+      .returning();
+
+    if (input.paymentMethodBillingName) {
+      await tx.insert(paymentMethods).values({
+        id: `pm_${nanoid()}`,
+        customerId: id,
+        type: "custom",
+        customType: DEFAULT_CUSTOM_PAYMENT_METHOD_TYPE,
+        billingName: input.paymentMethodBillingName,
+        livemode: false,
+        detachedAt: null,
+        createdAt: new Date(now * 1000),
+        updatedAt: new Date(now * 1000),
+      });
+    }
+
+    return [createdCustomer];
+  });
 
   return toCustomer(row);
 }
@@ -283,13 +316,7 @@ export async function createTaxId(
   if (rows.length === 0) return "not_found";
   if (rows[0].taxId) return "already_exists";
 
-  const taxIdObj = {
-    id: `txi_${nanoid()}`,
-    type: input.type,
-    value: input.value,
-    customer: customerId,
-    created: Math.floor(Date.now() / 1000),
-  };
+  const taxIdObj = buildTaxId(customerId, input);
 
   await db
     .update(customers)
