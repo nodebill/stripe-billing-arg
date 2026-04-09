@@ -4,10 +4,11 @@
 
 ## `GET /api/subscriptions`
 
-Returns a paginated Stripe-style list of subscriptions for a customer.
+Returns a paginated Stripe-style list of subscriptions.
 
 Query params:
-- `customer` (required)
+- `customer` (optional)
+- `subscription` (optional exact subscription ID)
 - `status`
 - `limit`
 - `starting_after`
@@ -17,6 +18,10 @@ Supported `status` values:
 - `active`
 - `past_due`
 - `canceled`
+
+Notes:
+- When `customer` is omitted, the endpoint returns a global subscription list across customers.
+- `limit` supports values up to `200`.
 
 ## `POST /api/subscriptions`
 
@@ -122,6 +127,21 @@ Rules:
 - The request processes exactly one cycle even if the subscription is many cycles behind.
 - The manual close creates a draft invoice, finalizes it, then either mocks payment or mocks invoice delivery based on `collection_method`.
 - If the next `current_period_end` is now in the future after the cycle is closed, the subscription returns to `renewal_mode=automatic`.
+
+## `POST /api/subscriptions/close_cycles`
+
+Manually closes exactly one overdue billing cycle for each matching active subscription.
+
+Request body:
+- `customer?`
+- `subscription?`
+
+Rules:
+- At least one exact filter is required.
+- Matching is performed only against active subscriptions.
+- The operation is sequential and processes at most one overdue cycle per matched subscription.
+- Subscriptions that are not yet due are returned as `skipped` results instead of aborting the batch.
+- The response includes aggregate counts plus per-subscription outcomes.
 
 ## `POST /api/subscriptions/:id`
 

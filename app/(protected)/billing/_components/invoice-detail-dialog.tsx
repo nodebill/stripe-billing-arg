@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatPriceAmount } from "@/app/(protected)/products/[id]/_components/price-format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,9 +12,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatPriceAmount } from "@/app/(protected)/products/[id]/_components/price-format";
-import type { Invoice, InvoiceDetail } from "@/modules/invoices/types";
 import { formatUtcDateRange } from "@/lib/utc-format";
+import type { Invoice, InvoiceDetail } from "@/modules/invoices/types";
 
 function formatBillingReason(reason: InvoiceDetail["line_items"][number]["billing_reason"]) {
   if (reason === "metered_carryforward") {
@@ -110,7 +110,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
                   {formatUtcDateRange(detail.period_start, detail.period_end)}
                 </p>
               </div>
-              <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm space-y-1">
+              <div className="space-y-1 rounded-lg border bg-muted/30 px-3 py-3 text-sm">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal</span>
                   <span>{formatPriceAmount(String(detail.subtotal), detail.currency)}</span>
@@ -119,7 +119,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
                   <span>IVA (21%)</span>
                   <span>{formatPriceAmount(String(detail.tax_amount), detail.currency)}</span>
                 </div>
-                <div className="flex justify-between font-medium pt-1 border-t">
+                <div className="flex justify-between border-t pt-1 font-medium">
                   <span>Total</span>
                   <span>{formatPriceAmount(String(detail.amount_due), detail.currency)}</span>
                 </div>

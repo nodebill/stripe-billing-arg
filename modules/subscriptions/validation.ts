@@ -120,11 +120,26 @@ export const updateSubscriptionSchema = z
   .strict();
 
 export const listSubscriptionsSchema = z.object({
-  customer: customerIdSchema,
+  customer: customerIdSchema.optional(),
+  subscription: subscriptionIdSchema.optional(),
   status: z.enum(["active", "past_due", "canceled"]).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(10),
+  limit: z.coerce.number().int().min(1).max(200).default(10),
   starting_after: subscriptionIdSchema.optional(),
   ending_before: subscriptionIdSchema.optional(),
 });
 
 export const closeSubscriptionCycleSchema = z.object({}).strict();
+
+export const bulkCloseSubscriptionCyclesSchema = z
+  .object({
+    customer: customerIdSchema.optional(),
+    subscription: subscriptionIdSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (value) => Boolean(value.customer || value.subscription),
+    {
+      message: "Provide at least one filter",
+      path: ["customer"],
+    }
+  );

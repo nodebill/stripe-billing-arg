@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSubscriptionSchema } from "../modules/subscriptions/validation";
+import {
+  bulkCloseSubscriptionCyclesSchema,
+  createSubscriptionSchema,
+  listSubscriptionsSchema,
+} from "../modules/subscriptions/validation";
 
 const baseInput = {
   customer: "cus_test",
@@ -78,4 +82,40 @@ test("rejects non-past backdate_start_date values", () => {
   if (parsed.success) return;
 
   assert.match(parsed.error.issues[0]?.message ?? "", /past timestamp/i);
+});
+
+test("accepts global subscription list filters with limit 200", () => {
+  const parsed = listSubscriptionsSchema.safeParse({
+    status: "active",
+    limit: 200,
+    customer: "cus_test",
+    subscription: "sub_test",
+  });
+
+  assert.equal(parsed.success, true);
+  if (!parsed.success) return;
+
+  assert.equal(parsed.data.limit, 200);
+  assert.equal(parsed.data.customer, "cus_test");
+  assert.equal(parsed.data.subscription, "sub_test");
+});
+
+test("rejects subscription list limits above 200", () => {
+  const parsed = listSubscriptionsSchema.safeParse({
+    limit: 201,
+  });
+
+  assert.equal(parsed.success, false);
+  if (parsed.success) return;
+
+  assert.match(parsed.error.issues[0]?.message ?? "", /200/);
+});
+
+test("requires at least one filter for bulk cycle close", () => {
+  const parsed = bulkCloseSubscriptionCyclesSchema.safeParse({});
+
+  assert.equal(parsed.success, false);
+  if (parsed.success) return;
+
+  assert.match(parsed.error.issues[0]?.message ?? "", /at least one filter/i);
 });

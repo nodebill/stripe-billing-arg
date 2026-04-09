@@ -1,7 +1,15 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Activity, KeyRound, Package, Shield, Users } from "lucide-react";
+import {
+  Activity,
+  KeyRound,
+  Package,
+  ReceiptText,
+  Repeat,
+  Shield,
+  Users,
+} from "lucide-react";
 import { auth, getServerPrincipal } from "@/infrastructure/auth";
 
 async function signOutAction() {
@@ -46,6 +54,20 @@ export default async function ProtectedLayout({
           >
             <Users className="size-4" />
             Customers
+          </Link>
+          <Link
+            href="/billing/subscriptions"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <Repeat className="size-4" />
+            Subscriptions
+          </Link>
+          <Link
+            href="/billing/invoices"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ReceiptText className="size-4" />
+            Invoices
           </Link>
           <Link
             href="/billing/meters"

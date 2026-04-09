@@ -30,6 +30,7 @@ import {
   formatUtcDate,
   formatUtcDateTime,
 } from "@/lib/utc-format";
+import { InvoiceDetailDialog } from "@/app/(protected)/billing/_components/invoice-detail-dialog";
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { CloseCycleDialog } from "./close-cycle-dialog";
 import { CreateSubscriptionScheduleDialog } from "./create-subscription-schedule-dialog";
@@ -37,7 +38,6 @@ import { CreatePaymentMethodDialog } from "./create-payment-method-dialog";
 import { CreateSubscriptionDialog } from "./create-subscription-dialog";
 import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
 import { EditPaymentMethodDialog } from "./edit-payment-method-dialog";
-import { InvoiceDetailDialog } from "./invoice-detail-dialog";
 import { ScheduleSubscriptionDialog } from "./schedule-subscription-dialog";
 
 function formatCollectionMethodLabel(
