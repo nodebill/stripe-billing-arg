@@ -28,6 +28,7 @@
 
 ## Customer payment methods
 
+- As an operator, I can upload one CSV on `/customers` to create many customers at once, including `metadata.external_id` and address fields, and I can review per-row failures without losing successful rows.
 - As an operator, I can open a customer detail page and review the custom payment methods attached to that customer.
 - As an operator, I can create a custom payment method and immediately attach it to a customer without providing an internal type identifier.
 - As an operator, I can update the billing name on an attached custom payment method.
@@ -36,6 +37,7 @@
 
 ## Customer subscriptions
 
+- As an operator, I can upload one CSV on `/customers` to create subscriptions for many existing customers at once using Stripe-style IDs, and I can review per-row failures without losing successful rows.
 - As an operator, I can create a subscription for a customer by selecting one active recurring price and choosing either automatic charging or manual invoice sending.
 - As an operator, when I choose automatic charging, I must select one attached payment method for the subscription.
 - As an operator, I can create a subscription with a Stripe-style aligned renewal date or a backdated start date instead of always starting the billing cycle today.

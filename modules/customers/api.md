@@ -34,6 +34,51 @@ Request body:
 - `description?`
 - `metadata?`
 
+## `POST /api/customers/import`
+
+Creates many customers from one uploaded CSV file.
+
+Request format:
+- `multipart/form-data`
+- `file`: UTF-8 CSV text
+
+Required CSV headers:
+- `name`
+- `email`
+- `description`
+- `external_id`
+- `address_line1`
+- `address_line2`
+- `address_city`
+- `address_state`
+- `address_postal_code`
+- `address_country`
+
+Canonical example:
+
+```csv
+name,email,description,external_id,address_line1,address_line2,address_city,address_state,address_postal_code,address_country
+Jane Smith,jane@example.com,VIP account,crm_123,Av. Corrientes 1234,,Buenos Aires,CABA,C1043,AR
+```
+
+Rules:
+- The CSV creates customers only; it never updates existing records.
+- Blank rows are ignored.
+- `email` is optional but must be valid when present.
+- `external_id` maps to `metadata.external_id`.
+- Address is optional.
+- If any address field is present, `address_line1` becomes required for that row.
+- Unknown headers, duplicate headers, missing required headers, unreadable CSV, and empty files are rejected with `400`.
+- Row validation failures return partial success instead of aborting the whole import.
+
+Success response:
+- `object: "customer_import"`
+- `total_rows`
+- `created_count`
+- `failed_count`
+- `created`
+- `errors: Array<{ row, message }>`
+
 ## `GET /api/customers/:id`
 
 Returns a single customer.
