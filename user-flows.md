@@ -2,11 +2,13 @@
 
 ## Authentication
 
-1. Anonymous users are redirected to `/sign-in` before any protected console page loads.
-2. On the first deployment, `/bootstrap` remains public until the first admin is created.
-3. Team members sign in from `/sign-in` and land on `/products`.
-4. Invited teammates open `/accept-invite?token=...`, set their name and password, and are signed in immediately after acceptance.
-5. Admins open `/team` to invite or manage members and `/api-keys` to create or revoke machine credentials.
+1. After a full reset, the operator can run `pnpm bootstrap:seed` with admin credentials to recreate the first admin plus the base meter and product before opening the UI.
+2. If the operator only reset billing data, the same CLI bootstrap skips auth creation and only restores the base catalog objects.
+3. Anonymous users are redirected to `/sign-in` before any protected console page loads.
+4. On the first deployment, `/bootstrap` remains public until the first admin is created.
+5. Team members sign in from `/sign-in` and land on `/products`.
+6. Invited teammates open `/accept-invite?token=...`, set their name and password, and are signed in immediately after acceptance.
+7. Admins open `/team` to invite or manage members and `/api-keys` to create or revoke machine credentials.
 
 ## Products index
 

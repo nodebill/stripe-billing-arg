@@ -3,6 +3,7 @@
 ## Authentication and access
 
 - As a deployer, I can bootstrap the first admin exactly once from a public setup page.
+- As a deployer, I can run one CLI bootstrap after resetting the database so the first admin and base catalog are restored without recreating them by hand.
 - As a team member, I can sign in with my personal email and password before accessing the UI or API.
 - As an admin, I can invite teammates with a shareable one-time link instead of opening public sign-up.
 - As an admin, I can manage team roles, suspend access, and set a temporary password for a teammate.

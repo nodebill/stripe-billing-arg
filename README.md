@@ -46,6 +46,12 @@ pnpm dev
 
 For local Postgres or migrations, set `DATABASE_URL` in `.env.local`. Without it, the app can fall back to a local PGlite database for quick development.
 
+To clear test data without dropping the schema, run `pnpm db:reset`. This truncates billing tables and keeps auth data so you can stay signed in.
+
+If you also want to wipe auth state and reopen `/bootstrap`, run `pnpm db:reset -- --all`.
+
+When `DATABASE_URL` points to a non-local database, the reset script refuses to run unless you add `--force`.
+
 ## Updating Your Vercel Deploy
 
 If your Vercel project is connected to Git:
