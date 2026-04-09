@@ -838,6 +838,7 @@ async function createInvoiceWithLineItems(
   );
   const invoiceId = `in_${nanoid()}`;
   const subtotal = lineItems.reduce((sum, lineItem) => sum + lineItem.amount, 0);
+  const taxAmount = Math.round(subtotal * 0.21);
 
   await db.transaction(async (tx) => {
     await tx.insert(invoices).values({
@@ -848,7 +849,8 @@ async function createInvoiceWithLineItems(
       collectionMethod: subscription.collectionMethod,
       currency: price.currency,
       subtotal,
-      amountDue: subtotal,
+      taxAmount,
+      amountDue: subtotal + taxAmount,
       amountPaid: 0,
       dueDate: null,
       periodStart: nextPeriodStart,

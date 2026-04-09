@@ -84,6 +84,7 @@ async function toInvoiceSummary(
     collection_method: row.collectionMethod,
     currency: row.currency,
     subtotal: row.subtotal,
+    tax_amount: row.taxAmount,
     amount_due: row.amountDue,
     amount_paid: row.amountPaid,
     due_date: toUnix(row.dueDate),
