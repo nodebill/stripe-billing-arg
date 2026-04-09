@@ -18,19 +18,19 @@ import type {
 } from "@/modules/subscriptions/types";
 
 type RefreshSubscriptionsDialogProps = {
-  disabled: boolean;
   filters: BulkCloseSubscriptionCyclesInput;
   onRefreshed: (result: BulkCloseSubscriptionCyclesResult) => void;
 };
 
 export function RefreshSubscriptionsDialog({
-  disabled,
   filters,
   onRefreshed,
 }: RefreshSubscriptionsDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const hasFilters = Boolean(filters.customer || filters.subscription);
 
   async function handleSubmit() {
     setLoading(true);
@@ -69,17 +69,18 @@ export function RefreshSubscriptionsDialog({
       }}
     >
       <DialogTrigger
-        render={<Button variant="outline" size="sm" disabled={disabled} />}
+        render={<Button variant="outline" size="sm" />}
       >
         <RefreshCw />
         Refresh
       </DialogTrigger>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Refresh filtered subscriptions</DialogTitle>
+          <DialogTitle>Refresh subscriptions</DialogTitle>
           <DialogDescription>
-            This will close exactly one overdue billing cycle for each active
-            subscription that matches the current filters.
+            {hasFilters
+              ? "This will close exactly one overdue billing cycle for each active subscription that matches the current filters."
+              : "No exact filters are applied. This will close exactly one overdue billing cycle for every active subscription."}
           </DialogDescription>
         </DialogHeader>
 

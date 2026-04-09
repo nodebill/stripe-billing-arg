@@ -243,8 +243,6 @@ export function SubscriptionsView() {
     await loadSubscriptions(appliedFilters);
   }
 
-  const refreshDisabled = !appliedFilters.customer && !appliedFilters.subscription;
-
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -258,7 +256,6 @@ export function SubscriptionsView() {
           </p>
         </div>
         <RefreshSubscriptionsDialog
-          disabled={refreshDisabled}
           filters={appliedFilters}
           onRefreshed={(result) => void handleRefreshed(result)}
         />
@@ -293,8 +290,9 @@ export function SubscriptionsView() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          First load brings up to {PAGE_LIMIT} active subscriptions. Refresh is
-          enabled only after applying at least one exact ID filter.
+          First load brings up to {PAGE_LIMIT} active subscriptions. Apply exact
+          ID filters to narrow the batch, or run refresh across all active
+          subscriptions.
         </p>
       </div>
 

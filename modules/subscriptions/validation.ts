@@ -135,11 +135,4 @@ export const bulkCloseSubscriptionCyclesSchema = z
     customer: customerIdSchema.optional(),
     subscription: subscriptionIdSchema.optional(),
   })
-  .strict()
-  .refine(
-    (value) => Boolean(value.customer || value.subscription),
-    {
-      message: "Provide at least one filter",
-      path: ["customer"],
-    }
-  );
+  .strict();
