@@ -142,10 +142,10 @@ test("imports valid subscriptions for multiple customers", async () => {
   const paymentMethodThree = await createAttachedPaymentMethod(customerThree.id);
 
   const csv = [
-    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior",
-    `${customerOne.id},${monthlyPrice.id},charge_automatically,${paymentMethodOne.id},start_today,,,,`,
-    `${customerTwo.id},${monthlyPrice.id},send_invoice,,align_renewal,15,,,`,
-    `${customerThree.id},${yearlyPrice.id},charge_automatically,${paymentMethodThree.id},align_renewal,20,10,,none`,
+    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,backdate_behavior,proration_behavior",
+    `${customerOne.id},${monthlyPrice.id},charge_automatically,${paymentMethodOne.id},start_today,,,,,`,
+    `${customerTwo.id},${monthlyPrice.id},send_invoice,,align_renewal,15,,,,`,
+    `${customerThree.id},${yearlyPrice.id},charge_automatically,${paymentMethodThree.id},align_renewal,20,10,,,none`,
   ].join("\n");
 
   const result = await importSubscriptions(csv);
@@ -173,8 +173,8 @@ test("subscription import defaults blank modal-style fields", async () => {
   const paymentMethod = await createAttachedPaymentMethod(customer.id);
 
   const csv = [
-    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior",
-    `${customer.id},${monthlyPrice.id},,${paymentMethod.id},,,,,`,
+    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,backdate_behavior,proration_behavior",
+    `${customer.id},${monthlyPrice.id},,${paymentMethod.id},,,,,,`,
   ].join("\n");
 
   const result = await importSubscriptions(csv);
@@ -198,8 +198,8 @@ test("backdated subscription rows convert YYYY-MM-DD to UTC midnight timestamps"
   );
 
   const csv = [
-    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior",
-    `${customer.id},${monthlyPrice.id},charge_automatically,${paymentMethod.id},backdate_start,,,${backdate},none`,
+    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,backdate_behavior,proration_behavior",
+    `${customer.id},${monthlyPrice.id},charge_automatically,${paymentMethod.id},backdate_start,,,${backdate},,none`,
   ].join("\n");
 
   const result = await importSubscriptions(csv);
@@ -233,14 +233,14 @@ test("subscription import reports row-level failures without blocking valid rows
   });
 
   const csv = [
-    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior",
-    `${customer.id},${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,`,
-    `bad_customer,${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,`,
-    `cus_missing,${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,`,
-    `${customer.id},price_missing,charge_automatically,${validPaymentMethod.id},start_today,,,,`,
-    `${customer.id},${monthlyPrice.id},charge_automatically,${unattachedPaymentMethod.id},start_today,,,,`,
-    `${conflictCustomer.id},${meteredPrice.id},charge_automatically,${conflictPaymentMethod.id},start_today,,,,`,
-    `${customer.id},${meteredPrice.id},charge_automatically,${validPaymentMethod.id},backdate_start,,,${getFirstDayOfCurrentUtcMonth()},create_prorations`,
+    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,backdate_behavior,proration_behavior",
+    `${customer.id},${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,,`,
+    `bad_customer,${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,,`,
+    `cus_missing,${monthlyPrice.id},charge_automatically,${validPaymentMethod.id},start_today,,,,,`,
+    `${customer.id},price_missing,charge_automatically,${validPaymentMethod.id},start_today,,,,,`,
+    `${customer.id},${monthlyPrice.id},charge_automatically,${unattachedPaymentMethod.id},start_today,,,,,`,
+    `${conflictCustomer.id},${meteredPrice.id},charge_automatically,${conflictPaymentMethod.id},start_today,,,,,`,
+    `${customer.id},${meteredPrice.id},charge_automatically,${validPaymentMethod.id},backdate_start,,,${getFirstDayOfCurrentUtcMonth()},,create_prorations`,
   ].join("\n");
 
   const result = await importSubscriptions(csv);
@@ -260,7 +260,7 @@ test("subscription import rejects malformed files at file level", async () => {
   await resetDb();
 
   const duplicateHeaders = parseSubscriptionImportCsv(
-    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,proration_behavior,price\ncus_1,price_1,,,,,,,,"
+    "customer,price,collection_method,default_payment_method,billing_cycle_mode,billing_day_of_month,billing_month,backdate_start_date,backdate_behavior,proration_behavior,price\ncus_1,price_1,,,,,,,,,"
   );
   assert.ok("type" in duplicateHeaders);
   if (!("type" in duplicateHeaders)) {

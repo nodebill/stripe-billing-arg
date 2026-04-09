@@ -37,6 +37,7 @@ const columnDefinitions = [
   { header: "billing_day_of_month", required: "Align renewal only", notes: "Integer day between 1 and 31." },
   { header: "billing_month", required: "Yearly align only", notes: "Optional month for yearly aligned renewals." },
   { header: "backdate_start_date", required: "Backdate only", notes: "Use `YYYY-MM-DD`." },
+  { header: "backdate_behavior", required: "Backdate only", notes: "Blank defaults to `advance_to_current_period`." },
   { header: "proration_behavior", required: "Optional", notes: "Blank defaults to `create_prorations`." },
 ] as const;
 
