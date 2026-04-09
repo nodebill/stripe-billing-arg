@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, lt } from "drizzle-orm";
+import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import { prices, products } from "@/infrastructure/database/schema";
@@ -193,12 +193,17 @@ export async function listProducts(
     }
   }
 
-  const rows = await db
-    .select()
-    .from(products)
-    .where(and(...conditions))
-    .orderBy(desc(products.createdAt), desc(products.id))
-    .limit(limit + 1);
+  const [rows, countResult] = await Promise.all([
+    db
+      .select()
+      .from(products)
+      .where(and(...conditions))
+      .orderBy(desc(products.createdAt), desc(products.id))
+      .limit(limit + 1),
+    db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(products),
+  ]);
 
   const hasMore = rows.length > limit;
   const data = rows.slice(0, limit).map(toProduct);
@@ -207,6 +212,7 @@ export async function listProducts(
     object: "list",
     data,
     has_more: hasMore,
+    total_count: countResult[0].count,
     url: "/api/products",
   };
 }

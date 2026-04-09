@@ -2,6 +2,7 @@ export type StripeList<T> = {
   object: "list";
   data: T[];
   has_more: boolean;
+  total_count?: number;
   url: string;
 };
 

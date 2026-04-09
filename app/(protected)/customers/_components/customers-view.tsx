@@ -27,6 +27,7 @@ import { ImportSubscriptionsDialog } from "./import-subscriptions-dialog";
 export function CustomersView() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -53,6 +54,9 @@ export function CustomersView() {
         setCustomers(data.data);
       }
       setHasMore(data.has_more);
+      if (data.total_count !== undefined) {
+        setTotalCount(data.total_count);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load customers");
       if (!startingAfter) {
@@ -163,7 +167,13 @@ export function CustomersView() {
     <div className="flex flex-col gap-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Customers{totalCount !== null && (
+            <span className="ml-2 text-base font-normal text-muted-foreground">
+              ({totalCount})
+            </span>
+          )}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage the customers who purchase your products and services.
         </p>

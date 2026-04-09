@@ -227,12 +227,17 @@ export async function listCustomers(
     }
   }
 
-  const rows = await db
-    .select()
-    .from(customers)
-    .where(and(...conditions))
-    .orderBy(desc(customers.createdAt), desc(customers.id))
-    .limit(limit + 1);
+  const [rows, countResult] = await Promise.all([
+    db
+      .select()
+      .from(customers)
+      .where(and(...conditions))
+      .orderBy(desc(customers.createdAt), desc(customers.id))
+      .limit(limit + 1),
+    db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(customers),
+  ]);
 
   const hasMore = rows.length > limit;
   const data = rows.slice(0, limit).map(toCustomer);
@@ -241,6 +246,7 @@ export async function listCustomers(
     object: "list",
     data,
     has_more: hasMore,
+    total_count: countResult[0].count,
     url: "/api/customers",
   };
 }

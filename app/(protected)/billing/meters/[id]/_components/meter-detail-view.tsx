@@ -2,9 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BarChart3 } from "lucide-react";
+import { ArrowLeft, BarChart3, Check, ChevronsUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -13,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { Customer, StripeList } from "@/modules/customers/types";
 import type {
   MeterEventSummary,
@@ -52,10 +67,22 @@ function toUnixDateExclusiveEnd(value: string) {
   return Math.floor(date.getTime() / 1000);
 }
 
+function customerLabel(customer: Customer) {
+  if (customer.name && customer.email) {
+    return `${customer.name} (${customer.email})`;
+  }
+  return customer.name || customer.email || customer.id;
+}
+
+function customerSortKey(customer: Customer) {
+  return (customer.name || customer.email || customer.id).toLowerCase();
+}
+
 export function MeterDetailView({ meterId }: { meterId: string }) {
   const [meter, setMeter] = useState<Meter | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [startDate, setStartDate] = useState(() => defaultDateRange().start);
   const [endDate, setEndDate] = useState(() => defaultDateRange().end);
   const [dailySummaries, setDailySummaries] = useState<MeterEventSummary[]>([]);
@@ -93,7 +120,9 @@ export function MeterDetailView({ meterId }: { meterId: string }) {
         }
 
         setMeter(meterData as Meter);
-        const customerList = (customersData as StripeList<Customer>).data;
+        const customerList = (customersData as StripeList<Customer>).data
+          .slice()
+          .sort((a, b) => customerSortKey(a).localeCompare(customerSortKey(b)));
         setCustomers(customerList);
         setSelectedCustomerId((current) => current || customerList[0]?.id || "");
       } catch (err) {
@@ -289,23 +318,57 @@ export function MeterDetailView({ meterId }: { meterId: string }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <label className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Customer</span>
-              <select
-                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                value={selectedCustomerId}
-                onChange={(event) => setSelectedCustomerId(event.target.value)}
-              >
-                {customers.length === 0 ? (
-                  <option value="">No customers available</option>
-                ) : null}
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.email || customer.name || customer.id}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Popover open={customerPickerOpen} onOpenChange={setCustomerPickerOpen}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className="h-8 w-full justify-between font-normal"
+                    />
+                  }
+                >
+                  <span className="truncate">
+                    {selectedCustomer
+                      ? customerLabel(selectedCustomer)
+                      : "Select customer..."}
+                  </span>
+                  <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </PopoverTrigger>
+                <PopoverContent className="w-[--anchor-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search by name, email, or ID..." />
+                    <CommandList>
+                      <CommandEmpty>No customers found.</CommandEmpty>
+                      <CommandGroup>
+                        {customers.map((customer) => (
+                          <CommandItem
+                            key={customer.id}
+                            value={`${customer.name ?? ""} ${customer.email ?? ""} ${customer.id}`}
+                            onSelect={() => {
+                              setSelectedCustomerId(customer.id);
+                              setCustomerPickerOpen(false);
+                            }}
+                            data-checked={customer.id === selectedCustomerId}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 size-4",
+                                customer.id === selectedCustomerId
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            <span className="truncate">{customerLabel(customer)}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium">Start date</span>
