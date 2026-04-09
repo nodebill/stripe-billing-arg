@@ -1,6 +1,10 @@
 import { parse } from "csv-parse/sync";
 import { createCustomerSchema } from "./validation";
-import { CUSTOMER_IMPORT_STANDARD_HEADERS } from "./import-contract";
+import {
+  CUSTOMER_IMPORT_LEGACY_METADATA_HEADERS,
+  CUSTOMER_IMPORT_METADATA_PREFIX,
+  CUSTOMER_IMPORT_STANDARD_HEADERS,
+} from "./import-contract";
 import { createCustomer } from "./service";
 import type {
   Address,
@@ -50,14 +54,35 @@ function validateHeaders(
   }
 
   const invalidHeader = headers.find(
-    (header) =>
-      !CUSTOMER_IMPORT_STANDARD_HEADERS.includes(
-        header as (typeof CUSTOMER_IMPORT_STANDARD_HEADERS)[number]
-      )
+    (header) => {
+      if (
+        CUSTOMER_IMPORT_STANDARD_HEADERS.includes(
+          header as (typeof CUSTOMER_IMPORT_STANDARD_HEADERS)[number]
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        CUSTOMER_IMPORT_LEGACY_METADATA_HEADERS.includes(
+          header as (typeof CUSTOMER_IMPORT_LEGACY_METADATA_HEADERS)[number]
+        )
+      ) {
+        return false;
+      }
+
+      if (!header.startsWith(CUSTOMER_IMPORT_METADATA_PREFIX)) {
+        return true;
+      }
+
+      return header.slice(CUSTOMER_IMPORT_METADATA_PREFIX.length).trim().length === 0;
+    }
   );
 
   if (invalidHeader) {
-    return badRequest(`Unsupported CSV header: '${invalidHeader}'`);
+    return badRequest(
+      `Unsupported CSV header: '${invalidHeader}'. Only metadata.* columns may extend the standard header set`
+    );
   }
 
   return null;
@@ -98,9 +123,8 @@ function normalizeImportedCustomerRow(
     email: trimOptionalString(row.email),
     description: trimOptionalString(row.description),
     address,
-    metadata: trimOptionalString(row.external_id)
-      ? { external_id: trimOptionalString(row.external_id)! }
-      : undefined,
+    metadata:
+      Object.keys(row.metadata).length > 0 ? row.metadata : undefined,
   });
 
   if (!parsed.success) {
@@ -165,18 +189,40 @@ export function parseCustomerImportCsv(
       return acc;
     }, {});
 
+    const metadata = Object.entries(rawRow).reduce<Record<string, string>>(
+      (acc, [header, value]) => {
+        if (!header.startsWith(CUSTOMER_IMPORT_METADATA_PREFIX)) {
+          return acc;
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return acc;
+        }
+
+        acc[header.slice(CUSTOMER_IMPORT_METADATA_PREFIX.length)] = trimmed;
+        return acc;
+      },
+      {}
+    );
+
+    const externalId = trimOptionalString(rawRow.external_id ?? "");
+    if (externalId && metadata.external_id === undefined) {
+      metadata.external_id = externalId;
+    }
+
     rows.push({
       row: record.info.lines,
       name: rawRow.name ?? "",
       email: rawRow.email ?? "",
       description: rawRow.description ?? "",
-      external_id: rawRow.external_id ?? "",
       address_line1: rawRow.address_line1 ?? "",
       address_line2: rawRow.address_line2 ?? "",
       address_city: rawRow.address_city ?? "",
       address_state: rawRow.address_state ?? "",
       address_postal_code: rawRow.address_postal_code ?? "",
       address_country: rawRow.address_country ?? "",
+      metadata,
     });
   }
 
