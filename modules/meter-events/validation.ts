@@ -16,6 +16,7 @@ export const createMeterEventSchema = z
   .object({
     event_name: meterEventNameSchema,
     identifier: z.string().min(1, "Identifier cannot be empty").max(200).optional(),
+    count: z.coerce.number().int().positive("Count must be greater than zero").optional(),
     payload: z
       .object({
         stripe_customer_id: customerIdSchema,
@@ -27,7 +28,11 @@ export const createMeterEventSchema = z
       .strict(),
     timestamp: z.coerce.number().int().positive().optional(),
   })
-  .strict();
+  .strict()
+  .refine((data) => !(data.count && data.count > 1 && data.identifier), {
+    message: "identifier cannot be provided when count is greater than 1",
+    path: ["identifier"],
+  });
 
 export const listMeterEventSummariesSchema = z
   .object({

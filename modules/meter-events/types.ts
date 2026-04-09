@@ -29,6 +29,7 @@ export type MeterEventSummary = {
 export type CreateMeterEventInput = {
   event_name: string;
   identifier?: string;
+  count?: number;
   payload: {
     stripe_customer_id: string;
     value: number;
