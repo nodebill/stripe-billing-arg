@@ -180,7 +180,7 @@ export async function listPrices(
   await ensureTables();
   const db = getDb();
 
-  const limit = params.limit ?? 10;
+  const limit = params.limit ?? 100;
   const conditions = [
     eq(prices.productId, params.product),
   ];

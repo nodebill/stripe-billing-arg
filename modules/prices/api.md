@@ -8,7 +8,7 @@ Returns a paginated Stripe-style list of prices for a product.
 
 Query params:
 - `product` (required)
-- `limit`
+- `limit` (defaults to `100`, max `100`)
 - `active`
 - `type`
 - `starting_after`

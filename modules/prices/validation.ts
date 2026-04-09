@@ -148,7 +148,7 @@ export const updatePriceSchema = z
 
 export const listPricesSchema = z.object({
   product: productIdSchema,
-  limit: z.coerce.number().int().min(1).max(100).default(10),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
   active: z
     .enum(["true", "false"])
     .transform((value) => value === "true")

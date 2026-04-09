@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createPriceSchema,
   importedPriceRowSchema,
+  listPricesSchema,
 } from "../modules/prices/validation";
 
 const recurringBase = {
@@ -109,4 +110,12 @@ test("rejects imported metered rows without a meter id", () => {
   if (parsed.success) return;
 
   assert.match(parsed.error.issues[0]?.message ?? "", /meter is required/i);
+});
+
+test("defaults listPrices limit to 100", () => {
+  const parsed = listPricesSchema.parse({
+    product: "prod_test",
+  });
+
+  assert.equal(parsed.limit, 100);
 });
