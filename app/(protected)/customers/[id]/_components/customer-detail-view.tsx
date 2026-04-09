@@ -27,11 +27,13 @@ import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
 import type { Subscription } from "@/modules/subscriptions/types";
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
+import { CloseCycleDialog } from "./close-cycle-dialog";
 import { CreateSubscriptionScheduleDialog } from "./create-subscription-schedule-dialog";
 import { CreatePaymentMethodDialog } from "./create-payment-method-dialog";
 import { CreateSubscriptionDialog } from "./create-subscription-dialog";
 import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
 import { EditPaymentMethodDialog } from "./edit-payment-method-dialog";
+import { InvoiceDetailDialog } from "./invoice-detail-dialog";
 import { ScheduleSubscriptionDialog } from "./schedule-subscription-dialog";
 
 function formatDate(unix: number) {
@@ -48,6 +50,14 @@ function formatCollectionMethodLabel(
   return collectionMethod === "charge_automatically"
     ? "Auto-charge"
     : "Send invoice";
+}
+
+function formatRenewalModeLabel(
+  renewalMode: Subscription["renewal_mode"]
+) {
+  return renewalMode === "manual_until_current"
+    ? "Manual catch-up"
+    : "Automatic";
 }
 
 export function CustomerDetailView({ customerId }: { customerId: string }) {
@@ -368,6 +378,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               <TableRow className="hover:bg-transparent">
                 <TableHead>Price</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Renewal mode</TableHead>
                 <TableHead>Collection</TableHead>
                 <TableHead>Payment method</TableHead>
                 <TableHead>Period start</TableHead>
@@ -396,6 +407,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                         option.usageType === price.recurring?.usage_type
                     )
                   : [];
+                const canCloseCycle =
+                  subscription.status !== "canceled" &&
+                  !subscription.cancel_at_period_end &&
+                  subscription.current_period_end * 1000 <= Date.now();
 
                 return (
                   <TableRow key={subscription.id}>
@@ -421,6 +436,9 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
+                      {formatRenewalModeLabel(subscription.renewal_mode)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       {formatCollectionMethodLabel(subscription.collection_method)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
@@ -440,6 +458,12 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     <TableCell>
                       {subscription.status === "active" ? (
                         <div className="flex items-center justify-end gap-1">
+                          {canCloseCycle ? (
+                            <CloseCycleDialog
+                              subscription={subscription}
+                              onClosed={refresh}
+                            />
+                          ) : null}
                           {price ? (
                             <CreateSubscriptionScheduleDialog
                               subscription={subscription}
@@ -496,6 +520,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 <TableHead>Amount</TableHead>
                 <TableHead>Timing</TableHead>
                 <TableHead>Delivery</TableHead>
+                <TableHead className="w-[88px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -551,6 +576,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                             : ""
                         }`
                       : "--"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      <InvoiceDetailDialog invoice={invoice} />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

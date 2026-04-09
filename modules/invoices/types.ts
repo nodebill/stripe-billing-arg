@@ -3,6 +3,10 @@ import type { StripeList } from "@/modules/shared/types";
 export type InvoiceStatus = "draft" | "open" | "paid" | "past_due";
 export type InvoiceCollectionMethod = "charge_automatically" | "send_invoice";
 export type InvoiceDeliveryStatus = "pending" | "sent";
+export type InvoiceLineItemBillingReason =
+  | "licensed_recurring"
+  | "metered_recurring"
+  | "metered_carryforward";
 
 export type InvoiceDelivery = {
   id: string;
@@ -34,6 +38,24 @@ export type Invoice = {
   latest_delivery: InvoiceDelivery | null;
   created: number;
   updated: number;
+};
+
+export type InvoiceLineItem = {
+  id: string;
+  object: "invoice_line_item";
+  price: string;
+  billing_reason: InvoiceLineItemBillingReason;
+  quantity: number;
+  amount: number;
+  currency: string;
+  period_start: number;
+  period_end: number;
+  created: number;
+  updated: number;
+};
+
+export type InvoiceDetail = Invoice & {
+  line_items: InvoiceLineItem[];
 };
 
 export type ListInvoicesParams = {

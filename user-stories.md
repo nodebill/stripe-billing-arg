@@ -41,6 +41,7 @@
 - As an operator, I can create a subscription for a customer by selecting one active recurring price and choosing either automatic charging or manual invoice sending.
 - As an operator, when I choose automatic charging, I must select one attached payment method for the subscription.
 - As an operator, I can create a subscription with a Stripe-style aligned renewal date or a backdated start date instead of always starting the billing cycle today.
+- As an operator, I can create a subscription with an exact historical first cycle and keep it pending manual catch-up instead of forcing it immediately into the current cycle.
 - As an operator, I can choose whether the initial anchored or backdated service period creates an immediate proration invoice.
 - As an operator, I can open a customer detail page and review that customer's subscriptions.
 - As an operator, I can open a customer detail page and review renewal invoices and mocked invoice deliveries for that customer.
@@ -48,8 +49,11 @@
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
 - As an operator, I can schedule a temporary discount or a future price change for an existing subscription without issuing an immediate proration invoice.
 - As an operator, the system processes due subscriptions in the background, creates renewal invoices, and either mocks an automatic payment or mocks sending an invoice based on the subscription collection method.
+- As an operator, I can manually close exactly one overdue cycle for one subscription so backlog billing can be caught up in controlled steps.
 - As an operator, a metered subscription renewal bills the usage recorded during the period that just ended.
 - As an operator, a metered renewal can multiply whole-number usage by a decimal per-unit amount and round once to the nearest minor unit on the invoice line item.
 - As an operator, when a subscription price changes mid-cycle, the renewal invoice reflects each pricing segment as separate line items instead of collapsing the whole cycle into one amount.
+- As an operator, if metered usage for an already-invoiced period arrives late, the next renewal invoice carries that usage forward as a separate line item priced according to the original usage period.
+- As an operator, I can inspect the line items on an invoice so I can distinguish regular renewal charges from late metered carryforward charges.
 - As an operator, I can see when a send-invoice renewal has become past due.
 - As an operator, I cannot delete a customer while they still have active or past-due subscriptions.

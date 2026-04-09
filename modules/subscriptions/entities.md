@@ -14,6 +14,8 @@
 - `ended_at: number | null`
 - `current_period_start: number`
 - `current_period_end: number`
+- `renewal_mode: "automatic" | "manual_until_current"`
+- `billing_anchor_start: number`
 - `livemode: boolean`
 - `created: number`
 - `updated: number`
@@ -32,6 +34,9 @@
 - By default, subscription creation sets `current_period_start` to the creation time and `current_period_end` one billing interval later.
 - `billing_cycle_anchor` and `billing_cycle_anchor_config` keep `current_period_start` at creation time but move `current_period_end` to the aligned renewal boundary.
 - `backdate_start_date` moves the subscription into the active billing period that contains the creation time, even if that period started in the past.
+- `backdate_behavior=preserve_exact_cycle` keeps the first cycle exactly at the requested historical period instead of advancing to the current one.
+- `billing_anchor_start` stores the immutable start boundary used to reconstruct historical cycle windows for renewal billing and late metered carryforward.
+- `renewal_mode=manual_until_current` means the subscription is intentionally excluded from automatic renewal processing until manual catch-up advances it into a current cycle.
 - A customer can have at most one active or `past_due` subscription for a given meter.
 - `charge_automatically` subscriptions require one attached payment method at creation time.
 - `send_invoice` subscriptions do not require a payment method.
@@ -41,5 +46,7 @@
 - When a due subscription renews, the billing processor creates a draft invoice first, then finalizes and collects it in a later stage.
 - The billing processor applies any due schedule phase transition before building the renewal invoice.
 - Metered renewals bill the usage recorded during the period that just ended while still advancing the subscription into the next billing period.
+- Manual cycle close processes exactly one overdue cycle for one subscription and uses the same billing pipeline as the automatic processor.
+- Once a manual catch-up subscription advances to a `current_period_end` in the future, it returns to `renewal_mode=automatic`.
 - Subscriptions scheduled for period-end cancellation are finalized as canceled by the billing processor once the current period ends.
 - `send_invoice` subscriptions become `past_due` when an open renewal invoice passes its due date unpaid.
