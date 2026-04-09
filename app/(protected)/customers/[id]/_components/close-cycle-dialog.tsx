@@ -13,14 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Subscription } from "@/modules/subscriptions/types";
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+import { formatUtcDateRange } from "@/lib/utc-format";
 
 export function CloseCycleDialog({
   subscription,
@@ -60,10 +53,10 @@ export function CloseCycleDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <RefreshCw />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Close current cycle</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words">
             Process exactly one overdue cycle for {subscription.id}. This will
             create the renewal invoice, finalize it, and collect or send it using
             the subscription collection method.
@@ -73,8 +66,10 @@ export function CloseCycleDialog({
         <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
           <p>
             <span className="font-medium">Current cycle:</span>{" "}
-            {formatDate(subscription.current_period_start)} to{" "}
-            {formatDate(subscription.current_period_end)}
+            {formatUtcDateRange(
+              subscription.current_period_start,
+              subscription.current_period_end
+            )}
           </p>
           <p className="mt-1 text-muted-foreground">
             Collection method: {subscription.collection_method}

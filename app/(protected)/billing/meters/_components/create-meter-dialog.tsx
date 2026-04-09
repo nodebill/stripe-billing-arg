@@ -80,7 +80,7 @@ export function CreateMeterDialog({
           )
         }
       />
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create meter</DialogTitle>
           <DialogDescription>

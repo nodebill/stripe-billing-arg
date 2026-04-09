@@ -13,14 +13,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPriceAmount } from "@/app/(protected)/products/[id]/_components/price-format";
 import type { Invoice, InvoiceDetail } from "@/modules/invoices/types";
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+import { formatUtcDateRange } from "@/lib/utc-format";
 
 function formatBillingReason(reason: InvoiceDetail["line_items"][number]["billing_reason"]) {
   if (reason === "metered_carryforward") {
@@ -88,7 +81,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
       <DialogTrigger render={<Button variant="ghost" size="sm" />}>
         Details
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>Invoice details</DialogTitle>
           <DialogDescription>
@@ -114,7 +107,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
               <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
                 <p className="font-medium">Invoice period</p>
                 <p className="mt-1 text-muted-foreground">
-                  {formatDate(detail.period_start)} to {formatDate(detail.period_end)}
+                  {formatUtcDateRange(detail.period_start, detail.period_end)}
                 </p>
               </div>
               <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
@@ -125,7 +118,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
               </div>
             </div>
 
-            <div className="rounded-lg border">
+            <div className="min-w-0 overflow-x-auto rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -148,8 +141,10 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
                         {formatPriceAmount(String(lineItem.amount), lineItem.currency)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {formatDate(lineItem.period_start)} to{" "}
-                        {formatDate(lineItem.period_end)}
+                        {formatUtcDateRange(
+                          lineItem.period_start,
+                          lineItem.period_end
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -16,19 +16,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Price } from "@/modules/prices/types";
 import type { Subscription } from "@/modules/subscriptions/types";
+import { formatUtcDateTime } from "@/lib/utc-format";
 
 type SchedulePriceOption = {
   id: string;
   label: string;
 };
 
-function toDateTimeLocalValue(date: Date) {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+function toUtcDateTimeInputValue(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
-function toUnix(value: string) {
-  return Math.floor(new Date(value).getTime() / 1000);
+function toUtcUnix(value: string) {
+  const [datePart, timePart] = value.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day, hour, minute, 0) / 1000);
 }
 
 export function CreateSubscriptionScheduleDialog({
@@ -47,16 +55,16 @@ export function CreateSubscriptionScheduleDialog({
   const [mode, setMode] = useState<"permanent" | "temporary">("temporary");
   const [selectedPriceId, setSelectedPriceId] = useState(priceOptions[0]?.id ?? "");
   const [effectiveAt, setEffectiveAt] = useState(() =>
-    toDateTimeLocalValue(new Date())
+    toUtcDateTimeInputValue(new Date())
   );
   const [revertAt, setRevertAt] = useState(() =>
-    toDateTimeLocalValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+    toUtcDateTimeInputValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
   );
   const [error, setError] = useState<string | null>(null);
 
   const currentPeriodEndUnix = subscription.current_period_end;
   const currentPeriodEndLabel = useMemo(
-    () => new Date(currentPeriodEndUnix * 1000).toLocaleString(),
+    () => formatUtcDateTime(currentPeriodEndUnix),
     [currentPeriodEndUnix]
   );
 
@@ -68,7 +76,7 @@ export function CreateSubscriptionScheduleDialog({
       return;
     }
 
-    const effectiveAtUnix = toUnix(effectiveAt);
+    const effectiveAtUnix = toUtcUnix(effectiveAt);
     if (!Number.isFinite(effectiveAtUnix)) {
       setError("Choose a valid effective date");
       return;
@@ -85,11 +93,11 @@ export function CreateSubscriptionScheduleDialog({
             {
               price: selectedPriceId,
               start_date: effectiveAtUnix,
-              end_date: toUnix(revertAt),
+              end_date: toUtcUnix(revertAt),
             },
             {
               price: currentPrice.id,
-              start_date: toUnix(revertAt),
+              start_date: toUtcUnix(revertAt),
               end_date: currentPeriodEndUnix,
             },
           ]
@@ -102,7 +110,7 @@ export function CreateSubscriptionScheduleDialog({
           ];
 
     if (mode === "temporary") {
-      const revertAtUnix = toUnix(revertAt);
+      const revertAtUnix = toUtcUnix(revertAt);
       if (!Number.isFinite(revertAtUnix)) {
         setError("Choose a valid revert date");
         return;
@@ -151,7 +159,7 @@ export function CreateSubscriptionScheduleDialog({
       >
         <Clock3 />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Schedule a price change</DialogTitle>
           <DialogDescription>
@@ -198,7 +206,7 @@ export function CreateSubscriptionScheduleDialog({
             </div>
 
             <div className="grid gap-1.5">
-              <Label htmlFor={`schedule-effective-${subscription.id}`}>Effective at</Label>
+              <Label htmlFor={`schedule-effective-${subscription.id}`}>Effective at (UTC)</Label>
               <Input
                 id={`schedule-effective-${subscription.id}`}
                 type="datetime-local"
@@ -209,7 +217,7 @@ export function CreateSubscriptionScheduleDialog({
 
             {mode === "temporary" ? (
               <div className="grid gap-1.5">
-                <Label htmlFor={`schedule-revert-${subscription.id}`}>Revert at</Label>
+                <Label htmlFor={`schedule-revert-${subscription.id}`}>Revert at (UTC)</Label>
                 <Input
                   id={`schedule-revert-${subscription.id}`}
                   type="datetime-local"
@@ -223,6 +231,9 @@ export function CreateSubscriptionScheduleDialog({
               The schedule will release at the end of the current billing period on{" "}
               {currentPeriodEndLabel}.
             </div>
+            <p className="text-xs text-muted-foreground">
+              All times in this form are interpreted in UTC.
+            </p>
           </div>
         )}
 

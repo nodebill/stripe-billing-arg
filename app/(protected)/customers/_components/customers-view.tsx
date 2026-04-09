@@ -18,6 +18,7 @@ import type {
   StripeList,
   StripeSearchResult,
 } from "@/modules/customers/types";
+import { formatUtcDate } from "@/lib/utc-format";
 import { CreateCustomerDialog } from "./create-customer-dialog";
 import { DeleteCustomerDialog } from "./delete-customer-dialog";
 import { EditCustomerDialog } from "./edit-customer-dialog";
@@ -125,14 +126,6 @@ export function CustomersView() {
     setLoading(true);
     setError(null);
     fetchCustomers();
-  }
-
-  function formatDate(unix: number) {
-    return new Date(unix * 1000).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
   }
 
   const normalizedSearch = search.trim().toLowerCase();
@@ -267,7 +260,7 @@ export function CustomersView() {
                     </code>
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {formatDate(customer.created)}
+                    {formatUtcDate(customer.created)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">

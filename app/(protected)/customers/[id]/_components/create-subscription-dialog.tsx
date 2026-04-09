@@ -203,7 +203,7 @@ export function CreateSubscriptionDialog({
         <Plus data-icon="inline-start" />
         Create subscription
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create subscription</DialogTitle>
           <DialogDescription>
@@ -350,7 +350,7 @@ export function CreateSubscriptionDialog({
           {billingCycleMode === "backdate_start" ||
           billingCycleMode === "historical_exact_cycle" ? (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="backdate-start-date">Backdated start date</Label>
+              <Label htmlFor="backdate-start-date">Backdated start date (UTC)</Label>
               <input
                 id="backdate-start-date"
                 type="date"

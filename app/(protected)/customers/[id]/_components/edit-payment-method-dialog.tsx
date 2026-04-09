@@ -68,7 +68,7 @@ export function EditPaymentMethodDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Pencil />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Edit payment method</DialogTitle>
           <DialogDescription>

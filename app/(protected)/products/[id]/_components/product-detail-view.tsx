@@ -17,18 +17,11 @@ import type { Meter } from "@/modules/meters/types";
 import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
+import { formatUtcDate } from "@/lib/utc-format";
 import { BulkCreatePricesDialog } from "./bulk-create-prices-dialog";
 import { CreatePriceDialog } from "./create-price-dialog";
 import { EditPriceDialog } from "./edit-price-dialog";
 import { formatPriceAmount, formatPriceType } from "./price-format";
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export function ProductDetailView({ productId }: { productId: string }) {
   const [product, setProduct] = useState<Product | null>(null);
@@ -231,7 +224,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
                 Created
               </p>
               <p className="mt-2 text-sm font-medium">
-                {formatDate(product.created)}
+                {formatUtcDate(product.created)}
               </p>
             </div>
           </div>
@@ -321,7 +314,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
                       )}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {formatDate(price.created)}
+                      {formatUtcDate(price.created)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">

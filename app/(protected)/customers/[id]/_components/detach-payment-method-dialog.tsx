@@ -50,7 +50,7 @@ export function DetachPaymentMethodDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Unlink />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Detach payment method</DialogTitle>
           <DialogDescription>

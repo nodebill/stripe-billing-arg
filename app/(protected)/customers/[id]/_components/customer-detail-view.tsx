@@ -26,6 +26,10 @@ import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
 import type { Subscription } from "@/modules/subscriptions/types";
+import {
+  formatUtcDate,
+  formatUtcDateTime,
+} from "@/lib/utc-format";
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { CloseCycleDialog } from "./close-cycle-dialog";
 import { CreateSubscriptionScheduleDialog } from "./create-subscription-schedule-dialog";
@@ -35,14 +39,6 @@ import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
 import { EditPaymentMethodDialog } from "./edit-payment-method-dialog";
 import { InvoiceDetailDialog } from "./invoice-detail-dialog";
 import { ScheduleSubscriptionDialog } from "./schedule-subscription-dialog";
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatCollectionMethodLabel(
   collectionMethod: "charge_automatically" | "send_invoice"
@@ -299,7 +295,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 Created
               </p>
               <p className="mt-2 text-sm font-medium">
-                {formatDate(customer.created)}
+                {formatUtcDate(customer.created)}
               </p>
             </div>
           </div>
@@ -445,10 +441,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                       {subscription.default_payment_method ?? "--"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {formatDate(subscription.current_period_start)}
+                      {formatUtcDate(subscription.current_period_start)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {formatDate(subscription.current_period_end)}
+                      {formatUtcDate(subscription.current_period_end)}
                     </TableCell>
                     <TableCell>
                       <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
@@ -518,7 +514,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 <TableHead>Status</TableHead>
                 <TableHead>Collection</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead>Timing</TableHead>
+                <TableHead>Timing (UTC)</TableHead>
                 <TableHead>Delivery</TableHead>
                 <TableHead className="w-[88px]" />
               </TableRow>
@@ -561,12 +557,12 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {invoice.paid_at
-                      ? `Paid ${formatDate(invoice.paid_at)}`
+                      ? `Paid ${formatUtcDateTime(invoice.paid_at)}`
                       : invoice.due_date
-                        ? `Due ${formatDate(invoice.due_date)}`
+                        ? `Due ${formatUtcDateTime(invoice.due_date)}`
                         : invoice.finalized_at
-                          ? `Finalized ${formatDate(invoice.finalized_at)}`
-                          : `Created ${formatDate(invoice.created)}`}
+                          ? `Finalized ${formatUtcDateTime(invoice.finalized_at)}`
+                          : `Created ${formatUtcDateTime(invoice.created)}`}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {invoice.latest_delivery
@@ -629,7 +625,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     </code>
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {formatDate(paymentMethod.created)}
+                    {formatUtcDate(paymentMethod.created)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">

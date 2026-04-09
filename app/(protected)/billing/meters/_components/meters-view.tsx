@@ -14,15 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Meter, StripeMeterList } from "@/modules/meters/types";
+import { formatUtcDate } from "@/lib/utc-format";
 import { CreateMeterDialog } from "./create-meter-dialog";
-
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export function MetersView() {
   const [meters, setMeters] = useState<Meter[]>([]);
@@ -138,7 +131,7 @@ export function MetersView() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {formatDate(meter.created)}
+                    {formatUtcDate(meter.created)}
                   </TableCell>
                   <TableCell>
                     <Link

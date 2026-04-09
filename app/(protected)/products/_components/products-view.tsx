@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Product, StripeList } from "@/modules/products/types";
+import { formatUtcDate } from "@/lib/utc-format";
 import { CreateProductDialog } from "./create-product-dialog";
 import { DeleteProductDialog } from "./delete-product-dialog";
 import { EditProductDialog } from "./edit-product-dialog";
@@ -65,14 +66,6 @@ export function ProductsView() {
     setLoading(true);
     setError(null);
     fetchProducts();
-  }
-
-  function formatDate(unix: number) {
-    return new Date(unix * 1000).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
   }
 
   const filtered = search
@@ -183,7 +176,7 @@ export function ProductsView() {
                     {product.description || "\u2014"}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {formatDate(product.created)}
+                    {formatUtcDate(product.created)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">

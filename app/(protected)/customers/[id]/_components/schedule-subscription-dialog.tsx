@@ -59,7 +59,7 @@ export function ScheduleSubscriptionDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         {subscription.cancel_at_period_end ? <RotateCcw /> : <CalendarX />}
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             {subscription.cancel_at_period_end
