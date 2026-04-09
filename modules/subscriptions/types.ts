@@ -68,6 +68,7 @@ export type ImportedSubscriptionCsvRow = {
   billing_day_of_month: string;
   billing_month: string;
   backdate_start_date: string;
+  backdate_behavior: string;
   proration_behavior: string;
 };
 

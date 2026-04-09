@@ -141,6 +141,17 @@ function normalizeImportedSubscriptionRow(
     };
   }
 
+  const backdateBehavior = trimOptionalString(row.backdate_behavior) ?? "advance_to_current_period";
+  if (!["advance_to_current_period", "preserve_exact_cycle"].includes(backdateBehavior)) {
+    return {
+      error: {
+        row: row.row,
+        message:
+          "backdate_behavior must be blank, advance_to_current_period, or preserve_exact_cycle",
+      },
+    };
+  }
+
   const prorationBehavior = trimOptionalString(row.proration_behavior) ?? "create_prorations";
   if (!["create_prorations", "none"].includes(prorationBehavior)) {
     return {
@@ -156,6 +167,7 @@ function normalizeImportedSubscriptionRow(
     customer: row.customer.trim(),
     collection_method: collectionMethod as "charge_automatically" | "send_invoice",
     default_payment_method: trimOptionalString(row.default_payment_method),
+    backdate_behavior: backdateBehavior as "advance_to_current_period" | "preserve_exact_cycle",
     proration_behavior: prorationBehavior as "create_prorations" | "none",
     items: [{ price: row.price.trim() }],
   };
@@ -313,6 +325,7 @@ export function parseSubscriptionImportCsv(
       billing_day_of_month: rawRow.billing_day_of_month ?? "",
       billing_month: rawRow.billing_month ?? "",
       backdate_start_date: rawRow.backdate_start_date ?? "",
+      backdate_behavior: rawRow.backdate_behavior ?? "",
       proration_behavior: rawRow.proration_behavior ?? "",
     });
   }
