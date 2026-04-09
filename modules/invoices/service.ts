@@ -129,7 +129,11 @@ export async function listInvoices(
   await ensureTables();
   const db = getDb();
   const limit = params.limit ?? 10;
-  const conditions = [eq(invoices.customerId, params.customer)];
+  const conditions = [];
+
+  if (params.customer) {
+    conditions.push(eq(invoices.customerId, params.customer));
+  }
 
   if (params.starting_after) {
     const cursor = await db
@@ -155,12 +159,19 @@ export async function listInvoices(
     }
   }
 
-  const rows = await db
-    .select()
-    .from(invoices)
-    .where(and(...conditions))
-    .orderBy(desc(invoices.createdAt), desc(invoices.id))
-    .limit(limit + 1);
+  const rows =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(invoices)
+          .where(and(...conditions))
+          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .limit(limit + 1)
+      : await db
+          .select()
+          .from(invoices)
+          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const data = await Promise.all(

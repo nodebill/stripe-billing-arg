@@ -4,13 +4,17 @@
 
 ## `GET /api/invoices`
 
-Returns a paginated Stripe-style list of invoices for a customer.
+Returns a paginated Stripe-style list of invoices.
 
 Query params:
-- `customer` (required)
+- `customer` (optional)
 - `limit`
 - `starting_after`
 - `ending_before`
+
+Notes:
+- When `customer` is omitted, the endpoint returns a global invoice list across customers.
+- `limit` supports values up to `200`.
 
 ## `GET /api/invoices/:id`
 

@@ -44,6 +44,7 @@ import {
   updateSubscriptionSchedule,
 } from "../modules/subscription-schedules/service";
 import {
+  bulkCloseSubscriptionCycles,
   createSubscription,
   getSubscription,
   listSubscriptions,
@@ -590,6 +591,141 @@ test("lists subscriptions only for the requested customer", async () => {
 
   assert.equal(list.data.length, 1);
   assert.equal(list.data[0]?.id, firstSubscription.id);
+});
+
+test("lists active subscriptions globally when customer is omitted", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const firstSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  const secondSubscription = await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  const list = await listSubscriptions({
+    status: "active",
+    limit: 200,
+  });
+
+  assert.equal(list.data.length, 2);
+  assert.deepEqual(
+    new Set(list.data.map((subscription) => subscription.id)),
+    new Set([firstSubscription.id, secondSubscription.id])
+  );
+});
+
+test("filters subscriptions by exact subscription id", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const firstSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  const list = await listSubscriptions({
+    subscription: firstSubscription.id,
+    status: "active",
+    limit: 200,
+  });
+
+  assert.equal(list.data.length, 1);
+  assert.equal(list.data[0]?.id, firstSubscription.id);
+});
+
+test("globally lists invoices when customer is omitted", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const firstSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  const secondSubscription = await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  const runAt = new Date("2026-04-04T13:00:00.000Z");
+  await expireSubscription(firstSubscription.id, 2, runAt);
+  await expireSubscription(secondSubscription.id, 2, runAt);
+
+  await processDueSubscriptions({
+    runAt,
+    trigger: "test_global_invoice_list",
+  });
+
+  const list = await listInvoices({
+    limit: 200,
+  });
+
+  assert.equal(list.data.length, 2);
+  assert.deepEqual(
+    new Set(list.data.map((invoice) => invoice.customer)),
+    new Set([first.customer.id, second.customer.id])
+  );
+});
+
+test("bulk close processes overdue subscriptions and skips subscriptions that are not due", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const overdueSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  const currentSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  await expireSubscription(overdueSubscription.id, 2);
+
+  const result = await bulkCloseSubscriptionCycles({
+    customer: first.customer.id,
+  });
+
+  assert.equal(result.matched_subscriptions, 2);
+  assert.equal(result.processed_subscriptions, 1);
+  assert.equal(result.skipped_subscriptions, 1);
+  assert.equal(result.failed_subscriptions, 0);
+
+  const processed = result.results.find(
+    (entry) => entry.subscription_id === overdueSubscription.id
+  );
+  assert.equal(processed?.status, "processed");
+  assert.ok(processed?.invoice);
+
+  const skipped = result.results.find(
+    (entry) => entry.subscription_id === currentSubscription.id
+  );
+  assert.equal(skipped?.status, "skipped");
+  assert.match(skipped?.message ?? "", /not have a cycle ready to close yet/i);
 });
 
 test("subscription reads do not mutate overdue billing state", async () => {

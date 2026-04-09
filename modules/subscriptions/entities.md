@@ -47,6 +47,7 @@
 - The billing processor applies any due schedule phase transition before building the renewal invoice.
 - Metered renewals bill the usage recorded during the period that just ended while still advancing the subscription into the next billing period.
 - Manual cycle close processes exactly one overdue cycle for one subscription and uses the same billing pipeline as the automatic processor.
+- Global subscription listing and filtered bulk manual close do not change the subscription entity shape.
 - Once a manual catch-up subscription advances to a `current_period_end` in the future, it returns to `renewal_mode=automatic`.
 - Subscriptions scheduled for period-end cancellation are finalized as canceled by the billing processor once the current period ends.
 - `send_invoice` subscriptions become `past_due` when an open renewal invoice passes its due date unpaid.

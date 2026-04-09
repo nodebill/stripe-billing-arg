@@ -1,7 +1,10 @@
-import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
-import { closeSubscriptionCycle as closeSubscriptionCycleInBilling } from "@/modules/billing/service";
+import {
+  BillingCycleError,
+  closeSubscriptionCycle as closeSubscriptionCycleInBilling,
+} from "@/modules/billing/service";
 import { getInvoice } from "@/modules/invoices/service";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
@@ -21,6 +24,9 @@ import {
   toUnix,
 } from "@/modules/shared/time";
 import type {
+  BulkCloseSubscriptionCyclesInput,
+  BulkCloseSubscriptionCyclesResult,
+  BulkCloseSubscriptionCyclesResultItem,
   CloseSubscriptionCycleResult,
   CreateSubscriptionInput,
   ListSubscriptionsParams,
@@ -686,7 +692,15 @@ export async function listSubscriptions(
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [eq(subscriptions.customerId, params.customer)];
+  const conditions = [];
+
+  if (params.customer) {
+    conditions.push(eq(subscriptions.customerId, params.customer));
+  }
+
+  if (params.subscription) {
+    conditions.push(eq(subscriptions.id, params.subscription));
+  }
 
   if (params.status) {
     conditions.push(eq(subscriptions.status, params.status));
@@ -716,16 +730,27 @@ export async function listSubscriptions(
     }
   }
 
-  const rows = await db
-    .select()
-    .from(subscriptions)
-    .where(and(...conditions))
-    .orderBy(
-      desc(subscriptions.createdAt),
-      desc(subscriptions.currentPeriodEnd),
-      desc(subscriptions.id)
-    )
-    .limit(limit + 1);
+  const rows =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(subscriptions)
+          .where(and(...conditions))
+          .orderBy(
+            desc(subscriptions.createdAt),
+            desc(subscriptions.currentPeriodEnd),
+            desc(subscriptions.id)
+          )
+          .limit(limit + 1)
+      : await db
+          .select()
+          .from(subscriptions)
+          .orderBy(
+            desc(subscriptions.createdAt),
+            desc(subscriptions.currentPeriodEnd),
+            desc(subscriptions.id)
+          )
+          .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const data = await Promise.all(
@@ -780,5 +805,81 @@ export async function closeSubscriptionCycle(
   return {
     subscription,
     invoice,
+  };
+}
+
+export async function bulkCloseSubscriptionCycles(
+  input: BulkCloseSubscriptionCyclesInput
+): Promise<BulkCloseSubscriptionCyclesResult> {
+  await ensureTables();
+  const db = getDb();
+  const conditions = [eq(subscriptions.status, "active")];
+
+  if (input.customer) {
+    conditions.push(eq(subscriptions.customerId, input.customer));
+  }
+
+  if (input.subscription) {
+    conditions.push(eq(subscriptions.id, input.subscription));
+  }
+
+  const rows = await db
+    .select()
+    .from(subscriptions)
+    .where(and(...conditions))
+    .orderBy(
+      asc(subscriptions.currentPeriodEnd),
+      asc(subscriptions.createdAt),
+      asc(subscriptions.id)
+    );
+
+  const results: BulkCloseSubscriptionCyclesResultItem[] = [];
+  let processedSubscriptions = 0;
+  let skippedSubscriptions = 0;
+  let failedSubscriptions = 0;
+
+  for (const row of rows) {
+    try {
+      const result = await closeSubscriptionCycle(row.id);
+      processedSubscriptions += 1;
+      results.push({
+        subscription_id: row.id,
+        customer_id: row.customerId,
+        status: "processed",
+        invoice: result.invoice,
+      });
+    } catch (error) {
+      if (
+        error instanceof SubscriptionError ||
+        error instanceof BillingCycleError
+      ) {
+        const status = error.code === "not_due" ? "skipped" : "failed";
+
+        if (status === "skipped") {
+          skippedSubscriptions += 1;
+        } else {
+          failedSubscriptions += 1;
+        }
+
+        results.push({
+          subscription_id: row.id,
+          customer_id: row.customerId,
+          status,
+          message: error.message,
+        });
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  return {
+    object: "subscription_cycle_close_batch",
+    matched_subscriptions: rows.length,
+    processed_subscriptions: processedSubscriptions,
+    skipped_subscriptions: skippedSubscriptions,
+    failed_subscriptions: failedSubscriptions,
+    results,
   };
 }

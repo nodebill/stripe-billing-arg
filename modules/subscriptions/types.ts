@@ -106,8 +106,31 @@ export type CloseSubscriptionCycleResult = {
   invoice: import("@/modules/invoices/types").InvoiceDetail;
 };
 
+export type BulkCloseSubscriptionCyclesInput = {
+  customer?: string;
+  subscription?: string;
+};
+
+export type BulkCloseSubscriptionCyclesResultItem = {
+  subscription_id: string;
+  customer_id: string;
+  status: "processed" | "skipped" | "failed";
+  invoice?: import("@/modules/invoices/types").InvoiceDetail;
+  message?: string;
+};
+
+export type BulkCloseSubscriptionCyclesResult = {
+  object: "subscription_cycle_close_batch";
+  matched_subscriptions: number;
+  processed_subscriptions: number;
+  skipped_subscriptions: number;
+  failed_subscriptions: number;
+  results: BulkCloseSubscriptionCyclesResultItem[];
+};
+
 export type ListSubscriptionsParams = {
-  customer: string;
+  customer?: string;
+  subscription?: string;
   status?: SubscriptionStatus;
   limit?: number;
   starting_after?: string;

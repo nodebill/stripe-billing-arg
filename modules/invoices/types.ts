@@ -60,7 +60,7 @@ export type InvoiceDetail = Invoice & {
 };
 
 export type ListInvoicesParams = {
-  customer: string;
+  customer?: string;
   limit?: number;
   starting_after?: string;
   ending_before?: string;

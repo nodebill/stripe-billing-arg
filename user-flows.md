@@ -9,6 +9,7 @@
 5. Team members sign in from `/sign-in` and land on `/products`.
 6. Invited teammates open `/accept-invite?token=...`, set their name and password, and are signed in immediately after acceptance.
 7. Admins open `/team` to invite or manage members and `/api-keys` to create or revoke machine credentials.
+8. Protected navigation exposes `/billing/subscriptions`, `/billing/invoices`, and `/billing/meters` as global billing views.
 
 ## Products index
 
@@ -41,6 +42,25 @@
 7. The detail page loads the meter, a customer list, and usage summaries from `/api/billing/meters/:id` and `/api/billing/meters/:id/event_summaries`.
 8. The user can switch customers and a UTC date range to inspect daily aggregated usage buckets.
 9. Usage events are recorded through `POST /api/billing/meter_events`; there is no admin UI for creating them in this version.
+
+## Global billing subscriptions
+
+1. The user opens `/billing/subscriptions`.
+2. The page loads up to 200 active subscriptions from `GET /api/subscriptions?status=active&limit=200`.
+3. The user can narrow the list with exact `customer_id` and `subscription_id` filters and re-run the query without leaving the page.
+4. The page resolves each subscription row back to its customer link and price label when those records are available.
+5. The `Refresh` action stays disabled until at least one exact filter is applied.
+6. After confirmation, the UI posts the active filter set to `POST /api/subscriptions/close_cycles`.
+7. The backend processes exactly one overdue cycle per matching active subscription, returns per-row outcomes, and the page reloads the filtered list.
+8. If more than 200 matching subscriptions exist, the user can load more results from the same screen.
+
+## Global billing invoices
+
+1. The user opens `/billing/invoices`.
+2. The page loads up to 200 invoices from `GET /api/invoices?limit=200`.
+3. The table shows invoice ID, customer link, subscription ID, status, collection method, amount, timing, and delivery state.
+4. The user can open the shared invoice detail dialog from the global list without leaving `/billing/invoices`.
+5. If more than 200 invoices exist, the user can load more results from the same screen.
 
 ## Customers index
 

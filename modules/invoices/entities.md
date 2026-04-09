@@ -65,3 +65,4 @@
 - Late-reported metered usage for a period that already has an invoice is carried onto a later invoice as a separate `metered_carryforward` line item.
 - Carryforward line items keep the original service period and original effective price even though they appear on a later invoice.
 - Zero-usage metered renewals still create invoices and line items with amount `0`.
+- Global invoice listing does not change the invoice entity shape.
