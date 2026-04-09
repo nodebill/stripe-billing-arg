@@ -60,7 +60,7 @@ export function CreateProductDialog({ onCreated }: { onCreated: () => void }) {
         <Plus data-icon="inline-start" />
         Add product
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create product</DialogTitle>
           <DialogDescription>

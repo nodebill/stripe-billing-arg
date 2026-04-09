@@ -31,6 +31,9 @@ export const createSubscriptionSchema = z
     billing_cycle_anchor: unixTimestampSchema.optional(),
     billing_cycle_anchor_config: billingCycleAnchorConfigSchema.optional(),
     backdate_start_date: unixTimestampSchema.optional(),
+    backdate_behavior: z
+      .enum(["advance_to_current_period", "preserve_exact_cycle"])
+      .default("advance_to_current_period"),
     proration_behavior: z
       .enum(["create_prorations", "none"])
       .default("create_prorations"),
@@ -95,6 +98,18 @@ export const createSubscriptionSchema = z
         path: ["backdate_start_date"],
       });
     }
+
+    if (
+      value.backdate_behavior === "preserve_exact_cycle" &&
+      !value.backdate_start_date
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "backdate_start_date is required when backdate_behavior is preserve_exact_cycle",
+        path: ["backdate_start_date"],
+      });
+    }
   })
   .strict();
 
@@ -111,3 +126,5 @@ export const listSubscriptionsSchema = z.object({
   starting_after: subscriptionIdSchema.optional(),
   ending_before: subscriptionIdSchema.optional(),
 });
+
+export const closeSubscriptionCycleSchema = z.object({}).strict();

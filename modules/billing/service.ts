@@ -1,4 +1,14 @@
-import { and, asc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
@@ -8,13 +18,14 @@ import {
   invoiceDeliveries,
   invoiceLineItems,
   invoices,
+  meterEvents,
+  meters,
   prices,
   subscriptionItems,
   subscriptionSchedulePhases,
   subscriptionSchedules,
   subscriptions,
 } from "@/infrastructure/database/schema";
-import { getMeterUsageTotal } from "@/modules/meter-events/service";
 import {
   multiplyDecimalByFractionAndRound,
   multiplyIntegerByDecimalAndRound,
@@ -28,12 +39,51 @@ import type {
 
 const PROCESSOR_STATE_ID = "subscription_billing";
 const PROCESSOR_LEASE_MS = 5 * 60 * 1000;
+
 type SubscriptionRow = typeof subscriptions.$inferSelect;
-type LoadedDueSubscription = {
+type PriceRow = typeof prices.$inferSelect;
+type MeterRow = typeof meters.$inferSelect;
+type MeterEventRow = typeof meterEvents.$inferSelect;
+
+type LoadedRenewableSubscription = {
   subscription: SubscriptionRow;
-  price: typeof prices.$inferSelect;
+  price: PriceRow;
   customerEmail: string | null;
 };
+
+type InvoiceLineItemValue = {
+  priceId: string;
+  billingReason: typeof invoiceLineItems.$inferInsert.billingReason;
+  quantity: number;
+  amount: number;
+  currency: string;
+  periodStart: Date;
+  periodEnd: Date;
+  meterEventIds: string[];
+};
+
+type PriceSegment = {
+  price: PriceRow;
+  segmentStart: Date;
+  segmentEnd: Date;
+};
+
+type EffectiveSchedulePhase = {
+  scheduleId: string;
+  priceId: string;
+  startDate: Date;
+  endDate: Date;
+  orderIndex: number;
+};
+
+export class BillingCycleError extends Error {
+  code: "not_found" | "already_canceled" | "not_due" | "invalid_state";
+
+  constructor(code: BillingCycleError["code"], message: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 function emptySummary(): BillingProcessorSummary {
   return {
@@ -162,7 +212,73 @@ async function releaseLease(
     .where(eq(billingProcessorState.id, PROCESSOR_STATE_ID));
 }
 
-async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[]> {
+async function loadPriceForSubscription(subscriptionId: string) {
+  const db = getDb();
+  const itemRows = await db
+    .select()
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.subscriptionId, subscriptionId))
+    .orderBy(asc(subscriptionItems.createdAt), asc(subscriptionItems.id))
+    .limit(1);
+
+  const item = itemRows[0];
+  if (!item) {
+    return null;
+  }
+
+  const priceRows = await db
+    .select()
+    .from(prices)
+    .where(eq(prices.id, item.priceId))
+    .limit(1);
+
+  const price = priceRows[0];
+  if (!price?.recurringInterval) {
+    return null;
+  }
+
+  return price;
+}
+
+async function loadCustomerEmail(customerId: string) {
+  const db = getDb();
+  const customerRows = await db
+    .select({ email: customers.email })
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+
+  return customerRows[0]?.email ?? null;
+}
+
+async function loadRenewableSubscription(
+  subscriptionId: string
+): Promise<LoadedRenewableSubscription | null> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.id, subscriptionId))
+    .limit(1);
+
+  const subscription = rows[0];
+  if (!subscription) {
+    return null;
+  }
+
+  const price = await loadPriceForSubscription(subscription.id);
+  if (!price) {
+    return null;
+  }
+
+  return {
+    subscription,
+    price,
+    customerEmail: await loadCustomerEmail(subscription.customerId),
+  };
+}
+
+async function loadDueSubscriptions(runAt: Date): Promise<LoadedRenewableSubscription[]> {
   const db = getDb();
   const rows = await db
     .select()
@@ -170,6 +286,7 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
     .where(
       and(
         inArray(subscriptions.status, ["active", "past_due"]),
+        eq(subscriptions.renewalMode, "automatic"),
         lte(subscriptions.currentPeriodEnd, runAt)
       )
     )
@@ -179,72 +296,23 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedDueSubscription[
       asc(subscriptions.id)
     );
 
-  const loaded: LoadedDueSubscription[] = [];
+  const loaded: LoadedRenewableSubscription[] = [];
 
   for (const row of rows) {
-    const itemRows = await db
-      .select()
-      .from(subscriptionItems)
-      .where(eq(subscriptionItems.subscriptionId, row.id))
-      .orderBy(asc(subscriptionItems.createdAt), asc(subscriptionItems.id))
-      .limit(1);
-
-    const item = itemRows[0];
-    if (!item) {
+    const price = await loadPriceForSubscription(row.id);
+    if (!price) {
       continue;
     }
-
-    const priceRows = await db
-      .select()
-      .from(prices)
-      .where(eq(prices.id, item.priceId))
-      .limit(1);
-
-    const price = priceRows[0];
-    if (!price?.recurringInterval) {
-      continue;
-    }
-
-    const customerRows = await db
-      .select({ email: customers.email })
-      .from(customers)
-      .where(eq(customers.id, row.customerId))
-      .limit(1);
 
     loaded.push({
       subscription: row,
       price,
-      customerEmail: customerRows[0]?.email ?? null,
+      customerEmail: await loadCustomerEmail(row.customerId),
     });
   }
 
   return loaded;
 }
-
-type PriceRow = typeof prices.$inferSelect;
-
-type InvoiceLineItemValue = {
-  priceId: string;
-  quantity: number;
-  amount: number;
-  currency: string;
-  periodStart: Date;
-  periodEnd: Date;
-};
-
-type PriceSegment = {
-  price: PriceRow;
-  segmentStart: Date;
-  segmentEnd: Date;
-};
-
-type EffectiveSchedulePhase = {
-  scheduleId: string;
-  priceId: string;
-  startDate: Date;
-  endDate: Date;
-  orderIndex: number;
-};
 
 function mergeAdjacentSegments(segments: PriceSegment[]) {
   const merged: PriceSegment[] = [];
@@ -310,10 +378,7 @@ async function getScheduleSegments(
     const terminalAt =
       schedule.canceledAt ?? schedule.releasedAt ?? schedule.completedAt ?? null;
 
-    if (
-      terminalAt &&
-      phase.startDate.getTime() >= terminalAt.getTime()
-    ) {
+    if (terminalAt && phase.startDate.getTime() >= terminalAt.getTime()) {
       continue;
     }
 
@@ -337,10 +402,6 @@ async function getScheduleSegments(
     });
   }
 
-  if (effectivePhases.length === 0) {
-    return null;
-  }
-
   const phasePriceIds = [
     ...new Set([
       defaultPrice.id,
@@ -353,7 +414,35 @@ async function getScheduleSegments(
     .from(prices)
     .where(inArray(prices.id, phasePriceIds));
 
-  const phasePriceMap = new Map(phasePriceRows.map((p) => [p.id, p]));
+  const phasePriceMap = new Map(phasePriceRows.map((price) => [price.id, price]));
+
+  if (effectivePhases.length === 0) {
+    const earliestPhase = [...phaseRows].sort(
+      (left, right) =>
+        left.startDate.getTime() - right.startDate.getTime() ||
+        left.orderIndex - right.orderIndex
+    )[0];
+
+    if (!earliestPhase || periodEnd.getTime() > earliestPhase.startDate.getTime()) {
+      return null;
+    }
+
+    const baselinePrice = phasePriceMap.get(
+      scheduleMap.get(earliestPhase.scheduleId)?.baselinePriceId ?? ""
+    );
+
+    if (!baselinePrice) {
+      return null;
+    }
+
+    return [
+      {
+        price: baselinePrice,
+        segmentStart: periodStart,
+        segmentEnd: periodEnd,
+      },
+    ];
+  }
 
   const activeAtPeriodStart = [...effectivePhases]
     .filter(
@@ -362,34 +451,32 @@ async function getScheduleSegments(
         phase.endDate.getTime() > periodStart.getTime()
     )
     .sort(
-      (a, b) =>
-        b.startDate.getTime() - a.startDate.getTime() ||
-        b.orderIndex - a.orderIndex
+      (left, right) =>
+        right.startDate.getTime() - left.startDate.getTime() ||
+        right.orderIndex - left.orderIndex
     )[0];
 
   const latestPhaseBeforePeriodStart = [...effectivePhases]
     .filter((phase) => phase.startDate.getTime() < periodStart.getTime())
     .sort(
-      (a, b) =>
-        b.startDate.getTime() - a.startDate.getTime() ||
-        b.orderIndex - a.orderIndex
+      (left, right) =>
+        right.startDate.getTime() - left.startDate.getTime() ||
+        right.orderIndex - left.orderIndex
     )[0];
 
   const earliestUpcomingPhase = [...effectivePhases].sort(
-    (a, b) =>
-      a.startDate.getTime() - b.startDate.getTime() ||
-      a.orderIndex - b.orderIndex
+    (left, right) =>
+      left.startDate.getTime() - right.startDate.getTime() ||
+      left.orderIndex - right.orderIndex
   )[0];
 
   let currentPrice =
-    (activeAtPeriodStart &&
-      phasePriceMap.get(activeAtPeriodStart.priceId)) ??
+    (activeAtPeriodStart && phasePriceMap.get(activeAtPeriodStart.priceId)) ??
     (latestPhaseBeforePeriodStart &&
       phasePriceMap.get(latestPhaseBeforePeriodStart.priceId)) ??
     (earliestUpcomingPhase &&
       phasePriceMap.get(
-        scheduleMap.get(earliestUpcomingPhase.scheduleId)?.baselinePriceId ??
-          ""
+        scheduleMap.get(earliestUpcomingPhase.scheduleId)?.baselinePriceId ?? ""
       )) ??
     defaultPrice;
 
@@ -448,103 +535,557 @@ async function getScheduleSegments(
   return mergeAdjacentSegments(segments);
 }
 
+async function getMeter(meterId: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(meters)
+    .where(eq(meters.id, meterId))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+function aggregateMeterValues(formula: MeterRow["defaultAggregation"], rows: MeterEventRow[]) {
+  if (formula === "count") {
+    return rows.length;
+  }
+
+  return rows.reduce((total, row) => total + row.value, 0);
+}
+
+async function loadUnbilledMeterEvents(
+  meterId: string,
+  customerId: string,
+  endExclusive: Date
+) {
+  const db = getDb();
+  return db
+    .select()
+    .from(meterEvents)
+    .where(
+      and(
+        eq(meterEvents.meterId, meterId),
+        eq(meterEvents.customerId, customerId),
+        isNull(meterEvents.invoiceLineItemId),
+        lt(meterEvents.eventTimestamp, endExclusive)
+      )
+    )
+    .orderBy(asc(meterEvents.eventTimestamp), asc(meterEvents.id));
+}
+
+function getCycleWindowForTimestamp(
+  anchorStart: Date,
+  interval: "month" | "year",
+  eventTimestamp: Date
+) {
+  let cycleStart = anchorStart;
+  let cycleEnd = addRecurringInterval(cycleStart, interval);
+
+  while (eventTimestamp.getTime() >= cycleEnd.getTime()) {
+    cycleStart = cycleEnd;
+    cycleEnd = addRecurringInterval(cycleStart, interval);
+  }
+
+  return { cycleStart, cycleEnd };
+}
+
+async function buildLicensedLineItems(
+  subscription: SubscriptionRow,
+  defaultPrice: PriceRow,
+  usagePeriodStart: Date,
+  usagePeriodEnd: Date,
+  invoicePeriodStart: Date,
+  invoicePeriodEnd: Date
+) {
+  const segments =
+    (await getScheduleSegments(
+      subscription.id,
+      usagePeriodStart,
+      usagePeriodEnd,
+      defaultPrice
+    )) ?? [
+      {
+        price: defaultPrice,
+        segmentStart: usagePeriodStart,
+        segmentEnd: usagePeriodEnd,
+      },
+    ];
+
+  const totalPeriodMs = BigInt(
+    usagePeriodEnd.getTime() - usagePeriodStart.getTime()
+  );
+
+  return segments.map((segment) => {
+    const segmentMs = BigInt(
+      segment.segmentEnd.getTime() - segment.segmentStart.getTime()
+    );
+    const amount =
+      segments.length === 1 &&
+      segment.segmentStart.getTime() === usagePeriodStart.getTime() &&
+      segment.segmentEnd.getTime() === usagePeriodEnd.getTime()
+        ? multiplyIntegerByDecimalAndRound(1, segment.price.unitAmountDecimal)
+        : multiplyDecimalByFractionAndRound(
+            segment.price.unitAmountDecimal,
+            segmentMs,
+            totalPeriodMs
+          );
+
+    return {
+      priceId: segment.price.id,
+      billingReason: "licensed_recurring" as const,
+      quantity: 1,
+      amount,
+      currency: segment.price.currency,
+      periodStart: invoicePeriodStart,
+      periodEnd: invoicePeriodEnd,
+      meterEventIds: [],
+    };
+  });
+}
+
+async function buildMeteredCycleLineItems(
+  subscription: SubscriptionRow,
+  meter: MeterRow,
+  defaultPrice: PriceRow,
+  cycleStart: Date,
+  cycleEnd: Date,
+  billingReason: "metered_recurring" | "metered_carryforward",
+  events: MeterEventRow[],
+  includeZeroLines: boolean
+) {
+  const segments =
+    (await getScheduleSegments(subscription.id, cycleStart, cycleEnd, defaultPrice)) ??
+    [
+      {
+        price: defaultPrice,
+        segmentStart: cycleStart,
+        segmentEnd: cycleEnd,
+      },
+    ];
+
+  const items: InvoiceLineItemValue[] = [];
+
+  for (const segment of segments) {
+    const segmentEvents = events.filter(
+      (event) =>
+        event.eventTimestamp.getTime() >= segment.segmentStart.getTime() &&
+        event.eventTimestamp.getTime() < segment.segmentEnd.getTime()
+    );
+
+    if (!includeZeroLines && segmentEvents.length === 0) {
+      continue;
+    }
+
+    const quantity = aggregateMeterValues(meter.defaultAggregation, segmentEvents);
+    const amount = multiplyIntegerByDecimalAndRound(
+      quantity,
+      segment.price.unitAmountDecimal
+    );
+
+    items.push({
+      priceId: segment.price.id,
+      billingReason,
+      quantity,
+      amount,
+      currency: segment.price.currency,
+      periodStart: cycleStart,
+      periodEnd: cycleEnd,
+      meterEventIds: segmentEvents.map((event) => event.id),
+    });
+  }
+
+  return items;
+}
+
 async function buildLineItems(
   subscription: SubscriptionRow,
   defaultPrice: PriceRow,
   usagePeriodStart: Date,
   usagePeriodEnd: Date,
   invoicePeriodStart: Date,
-  invoicePeriodEnd: Date,
-  runAt: Date
+  invoicePeriodEnd: Date
 ): Promise<InvoiceLineItemValue[]> {
-  const segments = await getScheduleSegments(
-    subscription.id,
+  if (!defaultPrice.meter) {
+    return buildLicensedLineItems(
+      subscription,
+      defaultPrice,
+      usagePeriodStart,
+      usagePeriodEnd,
+      invoicePeriodStart,
+      invoicePeriodEnd
+    );
+  }
+
+  const meter = await getMeter(defaultPrice.meter);
+  if (!meter) {
+    throw new Error(`No such meter: '${defaultPrice.meter}'`);
+  }
+
+  const unbilledEvents = await loadUnbilledMeterEvents(
+    defaultPrice.meter,
+    subscription.customerId,
+    usagePeriodEnd
+  );
+  const anchorStart =
+    subscription.billingAnchorStart.getTime() <=
+    subscription.currentPeriodStart.getTime()
+      ? subscription.billingAnchorStart
+      : subscription.currentPeriodStart;
+  const eligibleEvents = unbilledEvents.filter(
+    (event) => event.eventTimestamp.getTime() >= anchorStart.getTime()
+  );
+
+  const currentCycleEvents = eligibleEvents.filter(
+    (event) =>
+      event.eventTimestamp.getTime() >= usagePeriodStart.getTime() &&
+      event.eventTimestamp.getTime() < usagePeriodEnd.getTime()
+  );
+
+  const carryforwardByCycle = new Map<string, MeterEventRow[]>();
+  for (const event of eligibleEvents) {
+    if (event.eventTimestamp.getTime() >= usagePeriodStart.getTime()) {
+      continue;
+    }
+
+    const { cycleStart, cycleEnd } = getCycleWindowForTimestamp(
+      anchorStart,
+      defaultPrice.recurringInterval as "month" | "year",
+      event.eventTimestamp
+    );
+    const key = `${cycleStart.toISOString()}::${cycleEnd.toISOString()}`;
+    const existing = carryforwardByCycle.get(key) ?? [];
+    existing.push(event);
+    carryforwardByCycle.set(key, existing);
+  }
+
+  const carryforwardItems: InvoiceLineItemValue[] = [];
+  const sortedCarryCycles = [...carryforwardByCycle.entries()].sort(([left], [right]) =>
+    left.localeCompare(right)
+  );
+  for (const [, cycleEvents] of sortedCarryCycles) {
+    const { cycleStart, cycleEnd } = getCycleWindowForTimestamp(
+      anchorStart,
+      defaultPrice.recurringInterval as "month" | "year",
+      cycleEvents[0]!.eventTimestamp
+    );
+    carryforwardItems.push(
+      ...(await buildMeteredCycleLineItems(
+        subscription,
+        meter,
+        defaultPrice,
+        cycleStart,
+        cycleEnd,
+        "metered_carryforward",
+        cycleEvents,
+        false
+      ))
+    );
+  }
+
+  const currentCycleItems = await buildMeteredCycleLineItems(
+    subscription,
+    meter,
+    defaultPrice,
     usagePeriodStart,
     usagePeriodEnd,
-    defaultPrice
+    "metered_recurring",
+    currentCycleEvents,
+    true
   );
 
-  if (!segments) {
-    const usageQuantity = defaultPrice.meter
-      ? await getMeterUsageTotal(
-          defaultPrice.meter,
-          subscription.customerId,
-          Math.floor(usagePeriodStart.getTime() / 1000),
-          Math.floor(usagePeriodEnd.getTime() / 1000)
-        )
-      : 1;
-    const amount = defaultPrice.meter
-      ? multiplyIntegerByDecimalAndRound(
-          usageQuantity,
-          defaultPrice.unitAmountDecimal
-        )
-      : multiplyIntegerByDecimalAndRound(1, defaultPrice.unitAmountDecimal);
-    const lineItemPeriodStart = defaultPrice.meter
-      ? usagePeriodStart
-      : invoicePeriodStart;
-    const lineItemPeriodEnd = defaultPrice.meter
-      ? usagePeriodEnd
-      : invoicePeriodEnd;
+  return [...carryforwardItems, ...currentCycleItems];
+}
 
-    return [
-      {
-        priceId: defaultPrice.id,
-        quantity: usageQuantity,
-        amount,
-        currency: defaultPrice.currency,
-        periodStart: lineItemPeriodStart,
-        periodEnd: lineItemPeriodEnd,
-      },
-    ];
+async function createInvoiceWithLineItems(
+  loaded: LoadedRenewableSubscription,
+  runAt: Date
+) {
+  const db = getDb();
+  const { subscription, price } = loaded;
+
+  const nextPeriodStart = subscription.currentPeriodEnd;
+  const nextPeriodEnd = addRecurringInterval(
+    subscription.currentPeriodEnd,
+    price.recurringInterval as "month" | "year"
+  );
+  const usagePeriodStart = subscription.currentPeriodStart;
+  const usagePeriodEnd = subscription.currentPeriodEnd;
+
+  const existing = await db
+    .select({ id: invoices.id })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.subscriptionId, subscription.id),
+        eq(invoices.periodStart, nextPeriodStart),
+        eq(invoices.periodEnd, nextPeriodEnd)
+      )
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    return { invoiceId: existing[0].id, created: false };
   }
 
-  const totalPeriodMs = BigInt(
-    usagePeriodEnd.getTime() - usagePeriodStart.getTime()
+  const lineItems = await buildLineItems(
+    subscription,
+    price,
+    usagePeriodStart,
+    usagePeriodEnd,
+    nextPeriodStart,
+    nextPeriodEnd
   );
+  const invoiceId = `in_${nanoid()}`;
+  const subtotal = lineItems.reduce((sum, lineItem) => sum + lineItem.amount, 0);
 
-  const items: InvoiceLineItemValue[] = [];
+  await db.transaction(async (tx) => {
+    await tx.insert(invoices).values({
+      id: invoiceId,
+      customerId: subscription.customerId,
+      subscriptionId: subscription.id,
+      status: "draft",
+      collectionMethod: subscription.collectionMethod,
+      currency: price.currency,
+      subtotal,
+      amountDue: subtotal,
+      amountPaid: 0,
+      dueDate: null,
+      periodStart: nextPeriodStart,
+      periodEnd: nextPeriodEnd,
+      autoAdvance: true,
+      finalizedAt: null,
+      paidAt: null,
+      createdAt: runAt,
+      updatedAt: runAt,
+    });
 
-  for (const segment of segments) {
-    if (defaultPrice.meter) {
-      const quantity = await getMeterUsageTotal(
-        defaultPrice.meter,
-        subscription.customerId,
-        Math.floor(segment.segmentStart.getTime() / 1000),
-        Math.floor(segment.segmentEnd.getTime() / 1000)
-      );
-      const amount = multiplyIntegerByDecimalAndRound(
-        quantity,
-        segment.price.unitAmountDecimal
-      );
-      items.push({
-        priceId: segment.price.id,
-        quantity,
-        amount,
-        currency: segment.price.currency,
-        periodStart: segment.segmentStart,
-        periodEnd: segment.segmentEnd,
+    for (const lineItem of lineItems) {
+      const lineItemId = `il_${nanoid()}`;
+      await tx.insert(invoiceLineItems).values({
+        id: lineItemId,
+        invoiceId,
+        priceId: lineItem.priceId,
+        billingReason: lineItem.billingReason,
+        quantity: lineItem.quantity,
+        amount: lineItem.amount,
+        currency: lineItem.currency,
+        periodStart: lineItem.periodStart,
+        periodEnd: lineItem.periodEnd,
+        createdAt: runAt,
+        updatedAt: runAt,
       });
-    } else {
-      const segmentMs = BigInt(
-        segment.segmentEnd.getTime() - segment.segmentStart.getTime()
-      );
-      const amount = multiplyDecimalByFractionAndRound(
-        segment.price.unitAmountDecimal,
-        segmentMs,
-        totalPeriodMs
-      );
-      items.push({
-        priceId: segment.price.id,
-        quantity: 1,
-        amount,
-        currency: segment.price.currency,
-        periodStart: segment.segmentStart,
-        periodEnd: segment.segmentEnd,
-      });
+
+      if (lineItem.meterEventIds.length > 0) {
+        await tx
+          .update(meterEvents)
+          .set({
+            invoiceLineItemId: lineItemId,
+            updatedAt: runAt,
+          })
+          .where(
+            and(
+              inArray(meterEvents.id, lineItem.meterEventIds),
+              isNull(meterEvents.invoiceLineItemId)
+            )
+          );
+      }
     }
+  });
+
+  return { invoiceId, created: true };
+}
+
+function resolveAdvancedRenewalMode(
+  subscription: SubscriptionRow,
+  nextPeriodEnd: Date,
+  runAt: Date
+) {
+  if (subscription.renewalMode === "automatic") {
+    return "automatic" as const;
   }
 
-  return items;
+  return nextPeriodEnd.getTime() > runAt.getTime()
+    ? "automatic"
+    : "manual_until_current";
+}
+
+async function finalizeInvoicesById(runAt: Date, invoiceIds: string[]) {
+  if (invoiceIds.length === 0) {
+    return { finalizedInvoices: 0 };
+  }
+
+  await ensureTables();
+  const db = getDb();
+  const dueDate = new Date(runAt.getTime() + SEND_INVOICE_DUE_DAYS * 86400_000);
+
+  const draftInvoices = await db
+    .select()
+    .from(invoices)
+    .where(
+      and(
+        inArray(invoices.id, invoiceIds),
+        eq(invoices.status, "draft"),
+        eq(invoices.autoAdvance, true)
+      )
+    )
+    .orderBy(asc(invoices.createdAt), asc(invoices.id));
+
+  let finalizedInvoices = 0;
+
+  for (const invoice of draftInvoices) {
+    await db
+      .update(invoices)
+      .set({
+        status: "open",
+        dueDate:
+          invoice.collectionMethod === "send_invoice" ? dueDate : invoice.dueDate,
+        finalizedAt: runAt,
+        updatedAt: runAt,
+      })
+      .where(eq(invoices.id, invoice.id));
+
+    finalizedInvoices += 1;
+  }
+
+  return { finalizedInvoices };
+}
+
+async function hasDelivery(invoiceId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({ id: invoiceDeliveries.id })
+    .from(invoiceDeliveries)
+    .where(eq(invoiceDeliveries.invoiceId, invoiceId))
+    .limit(1);
+
+  return Boolean(rows[0]);
+}
+
+async function collectInvoicesById(runAt: Date, invoiceIds: string[]) {
+  if (invoiceIds.length === 0) {
+    return { paidInvoices: 0, sentInvoices: 0 };
+  }
+
+  await ensureTables();
+  const db = getDb();
+  const openInvoices = await db
+    .select()
+    .from(invoices)
+    .where(
+      and(
+        inArray(invoices.id, invoiceIds),
+        eq(invoices.status, "open")
+      )
+    )
+    .orderBy(asc(invoices.createdAt), asc(invoices.id));
+
+  let paidInvoices = 0;
+  let sentInvoices = 0;
+
+  for (const invoice of openInvoices) {
+    const subscriptionRows = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.id, invoice.subscriptionId))
+      .limit(1);
+    const subscription = subscriptionRows[0];
+
+    if (invoice.collectionMethod === "charge_automatically") {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(invoices)
+          .set({
+            status: "paid",
+            amountPaid: invoice.amountDue,
+            paidAt: runAt,
+            updatedAt: runAt,
+          })
+          .where(eq(invoices.id, invoice.id));
+
+        if (subscription) {
+          await tx
+            .update(subscriptions)
+            .set({
+              status: "active",
+              renewalMode: resolveAdvancedRenewalMode(
+                subscription,
+                invoice.periodEnd,
+                runAt
+              ),
+              currentPeriodStart: invoice.periodStart,
+              currentPeriodEnd: invoice.periodEnd,
+              updatedAt: runAt,
+            })
+            .where(eq(subscriptions.id, invoice.subscriptionId));
+        }
+      });
+
+      paidInvoices += 1;
+      continue;
+    }
+
+    if (await hasDelivery(invoice.id)) {
+      continue;
+    }
+
+    const customerEmail = await loadCustomerEmail(invoice.customerId);
+
+    await db.transaction(async (tx) => {
+      await tx.insert(invoiceDeliveries).values({
+        id: `idel_${nanoid()}`,
+        invoiceId: invoice.id,
+        channel: "mock_email",
+        status: "sent",
+        recipient: customerEmail,
+        payload: {
+          invoice_id: invoice.id,
+          customer_id: invoice.customerId,
+          subscription_id: invoice.subscriptionId,
+        },
+        sentAt: runAt,
+        createdAt: runAt,
+        updatedAt: runAt,
+      });
+
+      if (subscription && subscription.status !== "canceled") {
+        await tx
+          .update(subscriptions)
+          .set({
+            currentPeriodStart: invoice.periodStart,
+            currentPeriodEnd: invoice.periodEnd,
+            renewalMode: resolveAdvancedRenewalMode(
+              subscription,
+              invoice.periodEnd,
+              runAt
+            ),
+            status: subscription.status === "past_due" ? "past_due" : "active",
+            updatedAt: runAt,
+          })
+          .where(eq(subscriptions.id, invoice.subscriptionId));
+      }
+    });
+
+    sentInvoices += 1;
+  }
+
+  return { paidInvoices, sentInvoices };
+}
+
+async function createRenewalInvoiceForLoadedSubscription(
+  loaded: LoadedRenewableSubscription,
+  runAt: Date
+) {
+  const { subscription } = loaded;
+
+  if (subscription.cancelAtPeriodEnd) {
+    throw new BillingCycleError(
+      "invalid_state",
+      "Subscriptions scheduled to cancel at period end cannot be closed manually"
+    );
+  }
+
+  return createInvoiceWithLineItems(loaded, runAt);
 }
 
 export async function processSchedulePhaseTransitions(runAt: Date) {
@@ -553,9 +1094,7 @@ export async function processSchedulePhaseTransitions(runAt: Date) {
   const schedulableRows = await db
     .select()
     .from(subscriptionSchedules)
-    .where(
-      inArray(subscriptionSchedules.status, ["active", "not_started"])
-    );
+    .where(inArray(subscriptionSchedules.status, ["active", "not_started"]));
 
   for (const schedule of schedulableRows) {
     const phases = await db
@@ -565,9 +1104,9 @@ export async function processSchedulePhaseTransitions(runAt: Date) {
       .orderBy(asc(subscriptionSchedulePhases.orderIndex));
 
     const currentPhase = phases.find(
-      (p) =>
-        p.startDate.getTime() <= runAt.getTime() &&
-        p.endDate.getTime() > runAt.getTime()
+      (phase) =>
+        phase.startDate.getTime() <= runAt.getTime() &&
+        phase.endDate.getTime() > runAt.getTime()
     );
 
     const lastPhase = phases[phases.length - 1];
@@ -625,24 +1164,20 @@ export async function processSchedulePhaseTransitions(runAt: Date) {
           })
           .where(eq(subscriptionSchedules.id, schedule.id));
       }
-      continue;
     }
   }
 }
 
 export async function createRenewalInvoices(runAt: Date) {
   await ensureTables();
-  const db = getDb();
   const dueSubscriptions = await loadDueSubscriptions(runAt);
   let canceledSubscriptions = 0;
   let createdInvoices = 0;
 
   for (const loaded of dueSubscriptions) {
-    const { subscription, price } = loaded;
-
-    if (subscription.cancelAtPeriodEnd) {
-      const canceledAt = subscription.currentPeriodEnd;
-      await db
+    if (loaded.subscription.cancelAtPeriodEnd) {
+      const canceledAt = loaded.subscription.currentPeriodEnd;
+      await getDb()
         .update(subscriptions)
         .set({
           status: "canceled",
@@ -651,88 +1186,15 @@ export async function createRenewalInvoices(runAt: Date) {
           endedAt: canceledAt,
           updatedAt: runAt,
         })
-        .where(eq(subscriptions.id, subscription.id));
-
+        .where(eq(subscriptions.id, loaded.subscription.id));
       canceledSubscriptions += 1;
       continue;
     }
 
-    const nextPeriodStart = subscription.currentPeriodEnd;
-    const nextPeriodEnd = addRecurringInterval(
-      subscription.currentPeriodEnd,
-      price.recurringInterval as "month" | "year"
-    );
-
-    const existing = await db
-      .select({ id: invoices.id })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.subscriptionId, subscription.id),
-          eq(invoices.periodStart, nextPeriodStart),
-          eq(invoices.periodEnd, nextPeriodEnd)
-        )
-      )
-      .limit(1);
-
-    if (existing[0]) {
-      continue;
+    const result = await createRenewalInvoiceForLoadedSubscription(loaded, runAt);
+    if (result.created) {
+      createdInvoices += 1;
     }
-
-    const invoiceId = `in_${nanoid()}`;
-    const usagePeriodStart = subscription.currentPeriodStart;
-    const usagePeriodEnd = subscription.currentPeriodEnd;
-
-    const lineItems = await buildLineItems(
-      subscription,
-      price,
-      usagePeriodStart,
-      usagePeriodEnd,
-      nextPeriodStart,
-      nextPeriodEnd,
-      runAt
-    );
-
-    const subtotal = lineItems.reduce((sum, li) => sum + li.amount, 0);
-
-    await db.transaction(async (tx) => {
-      await tx.insert(invoices).values({
-        id: invoiceId,
-        customerId: subscription.customerId,
-        subscriptionId: subscription.id,
-        status: "draft",
-        collectionMethod: subscription.collectionMethod,
-        currency: price.currency,
-        subtotal,
-        amountDue: subtotal,
-        amountPaid: 0,
-        dueDate: null,
-        periodStart: nextPeriodStart,
-        periodEnd: nextPeriodEnd,
-        autoAdvance: true,
-        finalizedAt: null,
-        paidAt: null,
-        createdAt: runAt,
-        updatedAt: runAt,
-      });
-
-      for (const li of lineItems) {
-        await tx.insert(invoiceLineItems).values({
-          id: `il_${nanoid()}`,
-          invoiceId,
-          priceId: li.priceId,
-          quantity: li.quantity,
-          amount: li.amount,
-          currency: li.currency,
-          periodStart: li.periodStart,
-          periodEnd: li.periodEnd,
-          createdAt: runAt,
-          updatedAt: runAt,
-        });
-      }
-    });
-
-    createdInvoices += 1;
   }
 
   return {
@@ -783,108 +1245,19 @@ export async function finalizeEligibleDraftInvoices(
   return { finalizedInvoices };
 }
 
-async function hasDelivery(invoiceId: string) {
-  const db = getDb();
-  const rows = await db
-    .select({ id: invoiceDeliveries.id })
-    .from(invoiceDeliveries)
-    .where(eq(invoiceDeliveries.invoiceId, invoiceId))
-    .limit(1);
-
-  return Boolean(rows[0]);
-}
-
 export async function collectOpenInvoices(runAt: Date) {
   await ensureTables();
   const db = getDb();
   const openInvoices = await db
-    .select()
+    .select({ id: invoices.id })
     .from(invoices)
     .where(eq(invoices.status, "open"))
     .orderBy(asc(invoices.createdAt), asc(invoices.id));
 
-  let paidInvoices = 0;
-  let sentInvoices = 0;
-
-  for (const invoice of openInvoices) {
-    if (invoice.collectionMethod === "charge_automatically") {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(invoices)
-          .set({
-            status: "paid",
-            amountPaid: invoice.amountDue,
-            paidAt: runAt,
-            updatedAt: runAt,
-          })
-          .where(eq(invoices.id, invoice.id));
-
-        await tx
-          .update(subscriptions)
-          .set({
-            status: "active",
-            currentPeriodStart: invoice.periodStart,
-            currentPeriodEnd: invoice.periodEnd,
-            updatedAt: runAt,
-          })
-          .where(eq(subscriptions.id, invoice.subscriptionId));
-      });
-
-      paidInvoices += 1;
-      continue;
-    }
-
-    if (await hasDelivery(invoice.id)) {
-      continue;
-    }
-
-    const customerRows = await db
-      .select({ email: customers.email })
-      .from(customers)
-      .where(eq(customers.id, invoice.customerId))
-      .limit(1);
-
-    await db.transaction(async (tx) => {
-      await tx.insert(invoiceDeliveries).values({
-        id: `idel_${nanoid()}`,
-        invoiceId: invoice.id,
-        channel: "mock_email",
-        status: "sent",
-        recipient: customerRows[0]?.email ?? null,
-        payload: {
-          invoice_id: invoice.id,
-          customer_id: invoice.customerId,
-          subscription_id: invoice.subscriptionId,
-        },
-        sentAt: runAt,
-        createdAt: runAt,
-        updatedAt: runAt,
-      });
-
-      const subscriptionRows = await tx
-        .select()
-        .from(subscriptions)
-        .where(eq(subscriptions.id, invoice.subscriptionId))
-        .limit(1);
-
-      const subscription = subscriptionRows[0];
-      if (subscription && subscription.status !== "canceled") {
-        await tx
-          .update(subscriptions)
-          .set({
-            currentPeriodStart: invoice.periodStart,
-            currentPeriodEnd: invoice.periodEnd,
-            status: subscription.status === "past_due" ? "past_due" : "active",
-            updatedAt: runAt,
-          })
-          .where(eq(subscriptions.id, invoice.subscriptionId));
-      }
-    });
-
-    sentInvoices += 1;
-  }
-
-  return { paidInvoices, sentInvoices };
+  return collectInvoicesById(
+    runAt,
+    openInvoices.map((invoice) => invoice.id)
+  );
 }
 
 export async function markOverdueInvoices(runAt: Date) {
@@ -936,6 +1309,60 @@ export async function markOverdueInvoices(runAt: Date) {
   }
 
   return { pastDueInvoices };
+}
+
+export async function closeSubscriptionCycle(
+  subscriptionId: string,
+  runAt = new Date()
+) {
+  await ensureTables();
+  await acquireLease(runAt, `close_cycle_${subscriptionId}`);
+  const summary = emptySummary();
+
+  try {
+    await processSchedulePhaseTransitions(runAt);
+
+    const loaded = await loadRenewableSubscription(subscriptionId);
+    if (!loaded) {
+      throw new BillingCycleError(
+        "not_found",
+        `No such subscription: '${subscriptionId}'`
+      );
+    }
+
+    if (loaded.subscription.status === "canceled") {
+      throw new BillingCycleError(
+        "already_canceled",
+        "This subscription has already been canceled"
+      );
+    }
+
+    if (loaded.subscription.cancelAtPeriodEnd) {
+      throw new BillingCycleError(
+        "invalid_state",
+        "Subscriptions scheduled to cancel at period end cannot be closed manually"
+      );
+    }
+
+    if (loaded.subscription.currentPeriodEnd.getTime() > runAt.getTime()) {
+      throw new BillingCycleError(
+        "not_due",
+        "The subscription does not have a cycle ready to close yet"
+      );
+    }
+
+    const creation = await createRenewalInvoiceForLoadedSubscription(loaded, runAt);
+    await finalizeInvoicesById(runAt, [creation.invoiceId]);
+    await collectInvoicesById(runAt, [creation.invoiceId]);
+
+    await releaseLease(runAt, summary, null);
+    return { invoiceId: creation.invoiceId };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown billing processor error";
+    await releaseLease(runAt, summary, message);
+    throw error;
+  }
 }
 
 export async function processDueSubscriptions(

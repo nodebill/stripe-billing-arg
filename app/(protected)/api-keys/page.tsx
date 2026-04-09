@@ -7,6 +7,7 @@ import {
   listMachineApiKeys,
   requireServerAdmin,
 } from "@/infrastructure/auth";
+import { formatUtcDateTime } from "@/lib/utc-format";
 
 async function createApiKeyAction(formData: FormData) {
   "use server";
@@ -96,7 +97,8 @@ export default async function ApiKeysPage({
                 <div>
                   <div className="font-medium">{key.name ?? "Unnamed key"}</div>
                   <div className="text-sm text-muted-foreground">
-                    {key.start ?? key.prefix ?? key.id} · created {key.createdAt.toLocaleString()}
+                    {key.start ?? key.prefix ?? key.id} · created{" "}
+                    {formatUtcDateTime(key.createdAt)}
                   </div>
                 </div>
                 <form action={deleteApiKeyAction}>

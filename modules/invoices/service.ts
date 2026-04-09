@@ -2,18 +2,22 @@ import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   invoiceDeliveries,
+  invoiceLineItems,
   invoices,
 } from "@/infrastructure/database/schema";
 import { toUnix } from "@/modules/shared/time";
 import type {
   Invoice,
+  InvoiceDetail,
   InvoiceDelivery,
+  InvoiceLineItem,
   ListInvoicesParams,
   StripeInvoiceList,
 } from "./types";
 
 type InvoiceRow = typeof invoices.$inferSelect;
 type InvoiceDeliveryRow = typeof invoiceDeliveries.$inferSelect;
+type InvoiceLineItemRow = typeof invoiceLineItems.$inferSelect;
 
 function toInvoiceDelivery(row: InvoiceDeliveryRow): InvoiceDelivery {
   return {
@@ -41,7 +45,34 @@ async function getLatestDelivery(
   return rows[0] ? toInvoiceDelivery(rows[0]) : null;
 }
 
-async function toInvoice(
+function toInvoiceLineItem(row: InvoiceLineItemRow): InvoiceLineItem {
+  return {
+    id: row.id,
+    object: "invoice_line_item",
+    price: row.priceId,
+    billing_reason: row.billingReason,
+    quantity: row.quantity,
+    amount: row.amount,
+    currency: row.currency,
+    period_start: Math.floor(row.periodStart.getTime() / 1000),
+    period_end: Math.floor(row.periodEnd.getTime() / 1000),
+    created: Math.floor(row.createdAt.getTime() / 1000),
+    updated: Math.floor(row.updatedAt.getTime() / 1000),
+  };
+}
+
+async function listInvoiceLineItems(invoiceId: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceId))
+    .orderBy(invoiceLineItems.periodStart, invoiceLineItems.createdAt, invoiceLineItems.id);
+
+  return rows.map(toInvoiceLineItem);
+}
+
+async function toInvoiceSummary(
   row: InvoiceRow
 ): Promise<Invoice> {
   return {
@@ -67,9 +98,19 @@ async function toInvoice(
   };
 }
 
+async function toInvoiceDetail(
+  row: InvoiceRow
+): Promise<InvoiceDetail> {
+  const invoice = await toInvoiceSummary(row);
+  return {
+    ...invoice,
+    line_items: await listInvoiceLineItems(row.id),
+  };
+}
+
 export async function getInvoice(
   invoiceId: string
-): Promise<Invoice | null> {
+): Promise<InvoiceDetail | null> {
   await ensureTables();
   const db = getDb();
   const rows = await db
@@ -78,7 +119,7 @@ export async function getInvoice(
     .where(eq(invoices.id, invoiceId))
     .limit(1);
 
-  return rows[0] ? toInvoice(rows[0]) : null;
+  return rows[0] ? toInvoiceDetail(rows[0]) : null;
 }
 
 export async function listInvoices(
@@ -122,7 +163,7 @@ export async function listInvoices(
 
   const hasMore = rows.length > limit;
   const data = await Promise.all(
-    rows.slice(0, limit).map((row) => toInvoice(row))
+    rows.slice(0, limit).map((row) => toInvoiceSummary(row))
   );
 
   return {

@@ -10,6 +10,7 @@
 - `livemode: boolean`
 - `payload: { stripe_customer_id: string; value: string }`
 - `timestamp: number`
+- `invoice_line_item_id: string | null`
 
 ## MeterEventSummary
 
@@ -29,3 +30,5 @@
 - Summary queries use half-open windows: `[start_time, end_time)`.
 - Ungrouped summary requests always return one total summary row for the requested window, including zero usage.
 - Grouped summary requests return only buckets that contain recorded usage.
+- A meter event remains unbilled until renewal processing assigns it to an invoice line item.
+- `invoice_line_item_id` prevents duplicate billing and allows late-reported usage to be carried forward safely after the original cycle was already invoiced.

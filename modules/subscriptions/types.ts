@@ -5,6 +5,10 @@ export type SubscriptionCollectionMethod =
   | "charge_automatically"
   | "send_invoice";
 export type SubscriptionProrationBehavior = "create_prorations" | "none";
+export type SubscriptionRenewalMode = "automatic" | "manual_until_current";
+export type SubscriptionBackdateBehavior =
+  | "advance_to_current_period"
+  | "preserve_exact_cycle";
 
 export type SubscriptionBillingCycleAnchorConfig = {
   day_of_month: number;
@@ -25,12 +29,14 @@ export type Subscription = {
   object: "subscription";
   customer: string;
   status: SubscriptionStatus;
+  renewal_mode: SubscriptionRenewalMode;
   collection_method: SubscriptionCollectionMethod;
   default_payment_method: string | null;
   items: SubscriptionItem[];
   cancel_at_period_end: boolean;
   canceled_at: number | null;
   ended_at: number | null;
+  billing_anchor_start: number;
   current_period_start: number;
   current_period_end: number;
   livemode: boolean;
@@ -45,6 +51,7 @@ export type CreateSubscriptionInput = {
   billing_cycle_anchor?: number;
   billing_cycle_anchor_config?: SubscriptionBillingCycleAnchorConfig;
   backdate_start_date?: number;
+  backdate_behavior?: SubscriptionBackdateBehavior;
   proration_behavior?: SubscriptionProrationBehavior;
   items: Array<{
     price: string;
@@ -91,6 +98,11 @@ export type SubscriptionImportOperationResult = {
 
 export type UpdateSubscriptionInput = {
   cancel_at_period_end: boolean;
+};
+
+export type CloseSubscriptionCycleResult = {
+  subscription: Subscription;
+  invoice: import("@/modules/invoices/types").InvoiceDetail;
 };
 
 export type ListSubscriptionsParams = {

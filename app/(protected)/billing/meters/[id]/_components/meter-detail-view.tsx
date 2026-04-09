@@ -34,14 +34,10 @@ import type {
   StripeMeterEventSummaryList,
 } from "@/modules/meter-events/types";
 import type { Meter } from "@/modules/meters/types";
+import { formatUtcDate } from "@/lib/utc-format";
 
 function formatDateLabel(value: string) {
-  return new Date(`${value}T00:00:00.000Z`).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  return formatUtcDate(new Date(`${value}T00:00:00.000Z`));
 }
 
 function defaultDateRange() {
@@ -371,7 +367,7 @@ export function MeterDetailView({ meterId }: { meterId: string }) {
             </div>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium">Start date</span>
+              <span className="text-sm font-medium">Start date (UTC)</span>
               <Input
                 type="date"
                 value={startDate}
@@ -381,7 +377,7 @@ export function MeterDetailView({ meterId }: { meterId: string }) {
             </label>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium">End date</span>
+              <span className="text-sm font-medium">End date (UTC)</span>
               <Input
                 type="date"
                 value={endDate}

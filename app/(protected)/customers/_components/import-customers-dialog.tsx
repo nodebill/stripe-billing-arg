@@ -125,7 +125,7 @@ export function ImportCustomersDialog({
         <FileSpreadsheet data-icon="inline-start" />
         Import customers
       </DialogTrigger>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-5xl">
+      <DialogContent size="5xl">
         <DialogHeader>
           <DialogTitle>Import customers</DialogTitle>
           <DialogDescription>
@@ -136,7 +136,7 @@ export function ImportCustomersDialog({
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-            <div className="min-w-0 rounded-xl border">
+            <div className="min-w-0 overflow-x-auto rounded-xl border">
               <div className="border-b px-4 py-3">
                 <p className="font-medium">Expected CSV structure</p>
                 <p className="text-sm text-muted-foreground">
@@ -254,7 +254,8 @@ export function ImportCustomersDialog({
                       already created.
                     </p>
                   </div>
-                  <Table>
+                  <div className="overflow-x-auto">
+                    <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="w-24">Line</TableHead>
@@ -271,7 +272,8 @@ export function ImportCustomersDialog({
                         </TableRow>
                       ))}
                     </TableBody>
-                  </Table>
+                    </Table>
+                  </div>
                 </div>
               ) : null}
             </div>

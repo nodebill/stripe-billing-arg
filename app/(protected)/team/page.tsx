@@ -9,6 +9,7 @@ import {
   requireServerAdmin,
   revokeTeamInvite,
 } from "@/infrastructure/auth";
+import { formatUtcDateTime } from "@/lib/utc-format";
 
 const APP_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
@@ -246,7 +247,7 @@ export default async function TeamPage({
                   <div>
                     <div className="font-medium">{invite.email}</div>
                     <div className="text-sm text-muted-foreground">
-                      {invite.role} · expires {invite.expiresAt.toLocaleString()}
+                      {invite.role} · expires {formatUtcDateTime(invite.expiresAt)}
                     </div>
                   </div>
                   <form action={revokeInviteAction}>

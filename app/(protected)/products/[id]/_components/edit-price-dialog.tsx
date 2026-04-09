@@ -65,7 +65,7 @@ export function EditPriceDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Pencil />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Edit price</DialogTitle>
           <DialogDescription>

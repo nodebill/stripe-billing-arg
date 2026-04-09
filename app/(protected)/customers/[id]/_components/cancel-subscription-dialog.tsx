@@ -50,7 +50,7 @@ export function CancelSubscriptionDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Ban />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Cancel subscription now</DialogTitle>
           <DialogDescription>

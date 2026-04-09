@@ -77,7 +77,7 @@ export function CreatePaymentMethodDialog({
         <Plus data-icon="inline-start" />
         Add payment method
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create payment method</DialogTitle>
           <DialogDescription>

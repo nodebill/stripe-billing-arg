@@ -60,6 +60,7 @@ export const meterEvents = pgTable(
     value: integer("value").notNull(),
     eventTimestamp: timestamp("event_timestamp", { withTimezone: true })
       .notNull(),
+    invoiceLineItemId: text("invoice_line_item_id"),
     livemode: boolean("livemode").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -159,6 +160,10 @@ export const subscriptions = pgTable("subscriptions", {
   id: text("id").primaryKey(),
   customerId: text("customer_id").notNull(),
   status: text("status").$type<"active" | "past_due" | "canceled">().notNull(),
+  renewalMode: text("renewal_mode")
+    .$type<"automatic" | "manual_until_current">()
+    .default("automatic")
+    .notNull(),
   collectionMethod: text("collection_method")
     .$type<"charge_automatically" | "send_invoice">()
     .notNull(),
@@ -167,6 +172,8 @@ export const subscriptions = pgTable("subscriptions", {
   canceledAt: timestamp("canceled_at", { withTimezone: true }),
   endedAt: timestamp("ended_at", { withTimezone: true }),
   livemode: boolean("livemode").default(false).notNull(),
+  billingAnchorStart: timestamp("billing_anchor_start", { withTimezone: true })
+    .notNull(),
   currentPeriodStart: timestamp("current_period_start", { withTimezone: true })
     .notNull(),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true })
@@ -233,6 +240,9 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
   id: text("id").primaryKey(),
   invoiceId: text("invoice_id").notNull(),
   priceId: text("price_id").notNull(),
+  billingReason: text("billing_reason")
+    .$type<"licensed_recurring" | "metered_recurring" | "metered_carryforward">()
+    .notNull(),
   quantity: integer("quantity").default(1).notNull(),
   amount: integer("amount").notNull(),
   currency: text("currency").notNull(),

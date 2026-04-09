@@ -1,6 +1,8 @@
 import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
+import { closeSubscriptionCycle as closeSubscriptionCycleInBilling } from "@/modules/billing/service";
+import { getInvoice } from "@/modules/invoices/service";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   customers,
@@ -19,12 +21,14 @@ import {
   toUnix,
 } from "@/modules/shared/time";
 import type {
+  CloseSubscriptionCycleResult,
   CreateSubscriptionInput,
   ListSubscriptionsParams,
   StripeSubscriptionList,
   Subscription,
   SubscriptionCollectionMethod,
   SubscriptionItem,
+  SubscriptionRenewalMode,
   UpdateSubscriptionInput,
 } from "./types";
 
@@ -32,8 +36,10 @@ type SubscriptionRow = typeof subscriptions.$inferSelect;
 type SubscriptionItemRow = typeof subscriptionItems.$inferSelect;
 type DbLike = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update">;
 type InitialSubscriptionPeriod = {
+  billingAnchorStart: Date;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
+  renewalMode: SubscriptionRenewalMode;
   initialProrationPeriod: {
     start: Date;
     end: Date;
@@ -54,6 +60,7 @@ export class SubscriptionError extends Error {
     | "invalid_proration_behavior"
     | "invalid_price"
     | "metered_subscription_conflict"
+    | "not_due"
     | "already_canceled";
 
   constructor(code: SubscriptionError["code"], message: string) {
@@ -90,12 +97,14 @@ function toSubscriptionFromRows(
     object: "subscription",
     customer: row.customerId,
     status: row.status,
+    renewal_mode: row.renewalMode,
     collection_method: row.collectionMethod,
     default_payment_method: row.defaultPaymentMethodId,
     items: itemRows.map(toSubscriptionItem),
     cancel_at_period_end: row.cancelAtPeriodEnd,
     canceled_at: toUnix(row.canceledAt),
     ended_at: toUnix(row.endedAt),
+    billing_anchor_start: Math.floor(row.billingAnchorStart.getTime() / 1000),
     current_period_start: Math.floor(row.currentPeriodStart.getTime() / 1000),
     current_period_end: Math.floor(row.currentPeriodEnd.getTime() / 1000),
     livemode: row.livemode,
@@ -174,6 +183,17 @@ function resolveInitialSubscriptionPeriod(
 ): InitialSubscriptionPeriod {
   if (input.backdate_start_date) {
     const start = new Date(input.backdate_start_date * 1000);
+
+    if ((input.backdate_behavior ?? "advance_to_current_period") === "preserve_exact_cycle") {
+      return {
+        billingAnchorStart: start,
+        currentPeriodStart: start,
+        currentPeriodEnd: addRecurringInterval(start, interval),
+        renewalMode: "manual_until_current",
+        initialProrationPeriod: null,
+      };
+    }
+
     let currentPeriodStart = start;
     let currentPeriodEnd = addRecurringInterval(currentPeriodStart, interval);
 
@@ -183,8 +203,10 @@ function resolveInitialSubscriptionPeriod(
     }
 
     return {
+      billingAnchorStart: start,
       currentPeriodStart,
       currentPeriodEnd,
+      renewalMode: "automatic",
       initialProrationPeriod: {
         start,
         end: now,
@@ -199,8 +221,10 @@ function resolveInitialSubscriptionPeriod(
       : resolveBillingCycleAnchorConfig(now, interval, input.billing_cycle_anchor_config!);
 
     return {
+      billingAnchorStart: now,
       currentPeriodStart: now,
       currentPeriodEnd,
+      renewalMode: "automatic",
       initialProrationPeriod: {
         start: now,
         end: currentPeriodEnd,
@@ -210,8 +234,10 @@ function resolveInitialSubscriptionPeriod(
   }
 
   return {
+    billingAnchorStart: now,
     currentPeriodStart: now,
     currentPeriodEnd: addRecurringInterval(now, interval),
+    renewalMode: "automatic",
     initialProrationPeriod: null,
   };
 }
@@ -306,6 +332,7 @@ async function createImmediateProrationInvoice(
     id: lineItemId,
     invoiceId,
     priceId: params.priceId,
+    billingReason: "licensed_recurring",
     quantity: 1,
     amount: params.prorationAmount,
     currency: params.currency,
@@ -376,6 +403,16 @@ export async function createSubscription(
     throw new SubscriptionError(
       "invalid_billing_cycle",
       "backdate_start_date must be a past timestamp"
+    );
+  }
+
+  if (
+    input.backdate_behavior === "preserve_exact_cycle" &&
+    !input.backdate_start_date
+  ) {
+    throw new SubscriptionError(
+      "invalid_billing_cycle",
+      "backdate_start_date is required when backdate_behavior is preserve_exact_cycle"
     );
   }
 
@@ -518,6 +555,8 @@ export async function createSubscription(
         canceledAt: null,
         endedAt: null,
         livemode: false,
+        renewalMode: initialPeriod.renewalMode,
+        billingAnchorStart: initialPeriod.billingAnchorStart,
         currentPeriodStart: initialPeriod.currentPeriodStart,
         currentPeriodEnd: initialPeriod.currentPeriodEnd,
         createdAt: now,
@@ -716,4 +755,30 @@ export async function listNonCanceledCustomerSubscriptionIds(
         inArray(subscriptions.status, ["active", "past_due"])
       )
     );
+}
+
+export async function closeSubscriptionCycle(
+  subscriptionId: string
+): Promise<CloseSubscriptionCycleResult> {
+  const { invoiceId } = await closeSubscriptionCycleInBilling(subscriptionId);
+  const [subscription, invoice] = await Promise.all([
+    getSubscription(subscriptionId),
+    getInvoice(invoiceId),
+  ]);
+
+  if (!subscription) {
+    throw new SubscriptionError(
+      "not_found",
+      `No such subscription: '${subscriptionId}'`
+    );
+  }
+
+  if (!invoice) {
+    throw new Error(`No such invoice: '${invoiceId}'`);
+  }
+
+  return {
+    subscription,
+    invoice,
+  };
 }

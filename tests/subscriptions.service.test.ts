@@ -19,6 +19,7 @@ import {
   customers,
 } from "../infrastructure/database/schema";
 import {
+  closeSubscriptionCycle as closeSubscriptionCycleInBilling,
   createRenewalInvoices,
   finalizeEligibleDraftInvoices,
   getBillingProcessorState,
@@ -27,7 +28,7 @@ import {
   processSchedulePhaseTransitions,
 } from "../modules/billing/service";
 import { deleteCustomer, createCustomer } from "../modules/customers/service";
-import { listInvoices } from "../modules/invoices/service";
+import { getInvoice, listInvoices } from "../modules/invoices/service";
 import { createMeterEvent } from "../modules/meter-events/service";
 import { createMeter } from "../modules/meters/service";
 import {
@@ -51,7 +52,6 @@ import {
 } from "../modules/subscriptions/service";
 import { addRecurringInterval } from "../modules/shared/time";
 
-const ORGANIZATION_ID = "org_test";
 const runtime = globalThis as typeof globalThis & {
   __stripeBillingPGlite?: { close: () => Promise<void> };
   __stripeBillingPool?: { end: () => Promise<void> };
@@ -217,6 +217,32 @@ async function createMeteredRecurringPriceForProduct(
   }
 
   return price;
+}
+
+async function insertMeterEventRow(params: {
+  meterId: string;
+  customerId: string;
+  eventName: string;
+  value: number;
+  timestamp: Date;
+  identifier?: string;
+}) {
+  const now = new Date();
+  await getDb().insert(meterEvents).values({
+    id: `mtevt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    meterId: params.meterId,
+    customerId: params.customerId,
+    identifier:
+      params.identifier ??
+      `evt_${params.timestamp.getTime()}_${Math.random().toString(36).slice(2, 8)}`,
+    eventName: params.eventName,
+    value: params.value,
+    eventTimestamp: params.timestamp,
+    invoiceLineItemId: null,
+    livemode: false,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 async function expireSubscription(
@@ -471,6 +497,53 @@ test("backdated licensed subscriptions can create a catch-up proration invoice",
   assert.ok((invoiceRows[0]?.amountDue ?? 0) > 0);
   assert.equal(invoiceRows[0]?.periodStart.getTime(), backdate.getTime());
   assert.ok((invoiceRows[0]?.periodEnd.getTime() ?? 0) > backdate.getTime());
+});
+
+test("preserve_exact_cycle keeps a historical first period pending manual catch-up", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 1 });
+  const historicalStart = new Date("2026-03-01T00:00:00.000Z");
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    backdate_start_date: Math.floor(historicalStart.getTime() / 1000),
+    backdate_behavior: "preserve_exact_cycle",
+    items: [{ price: fixture.price.id }],
+  });
+
+  assert.equal(subscription.current_period_start, Math.floor(historicalStart.getTime() / 1000));
+  assert.equal(
+    subscription.current_period_end,
+    Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000)
+  );
+  assert.equal(subscription.billing_anchor_start, Math.floor(historicalStart.getTime() / 1000));
+  assert.equal(subscription.renewal_mode, "manual_until_current");
+
+  const invoicesRows = await getDb().select().from(invoices);
+  assert.equal(invoicesRows.length, 0);
+});
+
+test("automatic renewal processing ignores subscriptions in manual catch-up mode", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 1 });
+
+  await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    backdate_start_date: Math.floor(new Date("2026-03-01T00:00:00.000Z").getTime() / 1000),
+    backdate_behavior: "preserve_exact_cycle",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const summary = await processDueSubscriptions({
+    runAt: new Date("2026-04-09T12:00:00.000Z"),
+    trigger: "test_manual_mode_ignored",
+  });
+
+  assert.equal(summary.processed_subscriptions, 0);
+  assert.equal(summary.created_invoices, 0);
+  assert.equal((await getDb().select().from(invoices)).length, 0);
 });
 
 test("metered subscriptions reject create_prorations when an initial proration would be required", async () => {
@@ -1204,6 +1277,164 @@ test("metered renewals segment usage by price change boundaries", async () => {
   assert.equal(lineItemRows[1]?.quantity, 4);
   assert.equal(lineItemRows[1]?.amount, 100);
   assert.equal(invoiceRows[0]?.subtotal, 1100);
+});
+
+test("manual cycle close bills one historical metered cycle and returns the subscription to automatic mode", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 1 });
+  const cycleStart = new Date("2026-03-01T00:00:00.000Z");
+  const cycleEnd = new Date("2026-04-01T00:00:00.000Z");
+  const closeRunAt = new Date("2026-04-09T12:00:00.000Z");
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    backdate_start_date: Math.floor(cycleStart.getTime() / 1000),
+    backdate_behavior: "preserve_exact_cycle",
+    items: [{ price: fixture.price.id }],
+  });
+
+  await insertMeterEventRow({
+    meterId: fixture.meter.id,
+    customerId: fixture.customer.id,
+    eventName: fixture.meter.event_name,
+    value: 10,
+    timestamp: new Date("2026-03-31T12:00:00.000Z"),
+  });
+  await insertMeterEventRow({
+    meterId: fixture.meter.id,
+    customerId: fixture.customer.id,
+    eventName: fixture.meter.event_name,
+    value: 7,
+    timestamp: new Date("2026-04-02T12:00:00.000Z"),
+  });
+
+  const result = await closeSubscriptionCycleInBilling(subscription.id, closeRunAt);
+  const invoice = await getInvoice(result.invoiceId);
+  const renewed = await getSubscription(subscription.id);
+
+  assert.ok(invoice);
+  assert.ok(renewed);
+  assert.equal(invoice.status, "open");
+  assert.equal(invoice.subtotal, 10);
+  assert.equal(invoice.amount_due, 10);
+  assert.equal(invoice.line_items.length, 1);
+  assert.equal(invoice.line_items[0]?.billing_reason, "metered_recurring");
+  assert.equal(invoice.line_items[0]?.quantity, 10);
+  assert.equal(invoice.line_items[0]?.amount, 10);
+  assert.equal(invoice.line_items[0]?.period_start, Math.floor(cycleStart.getTime() / 1000));
+  assert.equal(invoice.line_items[0]?.period_end, Math.floor(cycleEnd.getTime() / 1000));
+  assert.equal(renewed.current_period_start, Math.floor(cycleEnd.getTime() / 1000));
+  assert.equal(
+    renewed.current_period_end,
+    Math.floor(new Date("2026-05-01T00:00:00.000Z").getTime() / 1000)
+  );
+  assert.equal(renewed.renewal_mode, "automatic");
+});
+
+test("late metered usage is billed in the next invoice as a carryforward line item using the original cycle price", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 100 });
+  const discountedPrice = await createMeteredRecurringPriceForProduct(
+    fixture.product.id,
+    fixture.meter.id,
+    25
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    backdate_start_date: Math.floor(new Date("2026-03-01T00:00:00.000Z").getTime() / 1000),
+    backdate_behavior: "preserve_exact_cycle",
+    items: [{ price: fixture.price.id }],
+  });
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: discountedPrice.id,
+        start_date: Math.floor(new Date("2026-04-15T00:00:00.000Z").getTime() / 1000),
+        end_date: Math.floor(new Date("2026-07-15T00:00:00.000Z").getTime() / 1000),
+      },
+    ],
+  });
+
+  await insertMeterEventRow({
+    meterId: fixture.meter.id,
+    customerId: fixture.customer.id,
+    eventName: fixture.meter.event_name,
+    value: 10,
+    timestamp: new Date("2026-03-31T12:00:00.000Z"),
+  });
+
+  const firstClose = await closeSubscriptionCycleInBilling(
+    subscription.id,
+    new Date("2026-04-09T12:00:00.000Z")
+  );
+  const firstInvoice = await getInvoice(firstClose.invoiceId);
+  assert.ok(firstInvoice);
+  assert.equal(firstInvoice.line_items[0]?.amount, 1000);
+
+  await insertMeterEventRow({
+    meterId: fixture.meter.id,
+    customerId: fixture.customer.id,
+    eventName: fixture.meter.event_name,
+    value: 4,
+    timestamp: new Date("2026-03-30T12:00:00.000Z"),
+  });
+  await insertMeterEventRow({
+    meterId: fixture.meter.id,
+    customerId: fixture.customer.id,
+    eventName: fixture.meter.event_name,
+    value: 2,
+    timestamp: new Date("2026-04-20T12:00:00.000Z"),
+  });
+
+  const summary = await processDueSubscriptions({
+    runAt: new Date("2026-05-02T12:00:00.000Z"),
+    trigger: "test_metered_carryforward",
+  });
+
+  assert.equal(summary.created_invoices, 1);
+
+  const invoiceRows = await getDb()
+    .select()
+    .from(invoices)
+    .where(eq(invoices.subscriptionId, subscription.id))
+    .orderBy(invoices.periodStart);
+  assert.equal(invoiceRows.length, 2);
+
+  const carryforwardInvoice = await getInvoice(invoiceRows[1]!.id);
+  assert.ok(carryforwardInvoice);
+  assert.equal(carryforwardInvoice.line_items.length, 3);
+
+  const carryforwardLine = carryforwardInvoice.line_items.find(
+    (lineItem) => lineItem.billing_reason === "metered_carryforward"
+  );
+  const currentLine = carryforwardInvoice.line_items.find(
+    (lineItem) =>
+      lineItem.billing_reason === "metered_recurring" &&
+      lineItem.price === discountedPrice.id
+  );
+
+  assert.ok(carryforwardLine);
+  assert.ok(currentLine);
+  assert.equal(carryforwardLine.price, fixture.price.id);
+  assert.equal(carryforwardLine.quantity, 4);
+  assert.equal(carryforwardLine.amount, 400);
+  assert.equal(
+    carryforwardLine.period_start,
+    Math.floor(new Date("2026-03-01T00:00:00.000Z").getTime() / 1000)
+  );
+  assert.equal(
+    carryforwardLine.period_end,
+    Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000)
+  );
+  assert.equal(currentLine.price, discountedPrice.id);
+  assert.equal(currentLine.quantity, 2);
+  assert.equal(currentLine.amount, 50);
 });
 
 test("renewals keep past schedule segments after a temporary schedule has already released", async () => {

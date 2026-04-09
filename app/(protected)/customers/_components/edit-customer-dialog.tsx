@@ -103,7 +103,7 @@ export function EditCustomerDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Pencil />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Edit customer</DialogTitle>
           <DialogDescription>
@@ -164,7 +164,7 @@ export function EditCustomerDialog({
                 placeholder="e.g. Piso 4, Depto B"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-address-city">City</Label>
                 <Input
@@ -184,7 +184,7 @@ export function EditCustomerDialog({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="edit-address-postal-code">Postal code</Label>
                 <Input

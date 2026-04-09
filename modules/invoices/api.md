@@ -18,6 +18,8 @@ Returns a single invoice.
 
 Rules:
 - Renewal invoices may contain multiple stored line items when pricing changed mid-cycle through a subscription schedule.
+- The invoice detail response includes `line_items`.
+- Each line item includes `billing_reason` so operators can distinguish standard renewal charges from late metered carryforward.
 
 ## `POST /api/internal/billing/process`
 

@@ -64,7 +64,7 @@ export function EditProductDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Pencil />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Edit product</DialogTitle>
           <DialogDescription>

@@ -30,6 +30,7 @@ const BILLING_CYCLE_MODES = [
   { value: "start_today", label: "Start today" },
   { value: "align_renewal", label: "Align renewal date" },
   { value: "backdate_start", label: "Backdate start date" },
+  { value: "historical_exact_cycle", label: "Historical exact cycle" },
 ] as const;
 
 const MONTH_OPTIONS = [
@@ -75,7 +76,10 @@ export function CreateSubscriptionDialog({
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [priceId, setPriceId] = useState("");
   const [billingCycleMode, setBillingCycleMode] = useState<
-    "start_today" | "align_renewal" | "backdate_start"
+    | "start_today"
+    | "align_renewal"
+    | "backdate_start"
+    | "historical_exact_cycle"
   >("start_today");
   const [billingDayOfMonth, setBillingDayOfMonth] = useState("1");
   const [billingMonth, setBillingMonth] = useState(
@@ -128,7 +132,11 @@ export function CreateSubscriptionDialog({
       return;
     }
 
-    if (billingCycleMode === "backdate_start" && !backdateStartDate) {
+    if (
+      (billingCycleMode === "backdate_start" ||
+        billingCycleMode === "historical_exact_cycle") &&
+      !backdateStartDate
+    ) {
       setError("Select a backdated start date");
       return;
     }
@@ -141,7 +149,10 @@ export function CreateSubscriptionDialog({
       collection_method: collectionMethod,
       default_payment_method:
         collectionMethod === "charge_automatically" ? paymentMethodId : undefined,
-      proration_behavior: isMeteredPrice ? "none" : prorationBehavior,
+      proration_behavior:
+        isMeteredPrice || billingCycleMode === "historical_exact_cycle"
+          ? "none"
+          : prorationBehavior,
       items: [{ price: priceId }],
     };
 
@@ -157,8 +168,15 @@ export function CreateSubscriptionDialog({
             };
     }
 
-    if (billingCycleMode === "backdate_start") {
+    if (
+      billingCycleMode === "backdate_start" ||
+      billingCycleMode === "historical_exact_cycle"
+    ) {
       requestBody.backdate_start_date = toUtcMidnightTimestamp(backdateStartDate);
+    }
+
+    if (billingCycleMode === "historical_exact_cycle") {
+      requestBody.backdate_behavior = "preserve_exact_cycle";
     }
 
     const res = await fetch("/api/subscriptions", {
@@ -185,7 +203,7 @@ export function CreateSubscriptionDialog({
         <Plus data-icon="inline-start" />
         Create subscription
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create subscription</DialogTitle>
           <DialogDescription>
@@ -270,6 +288,7 @@ export function CreateSubscriptionDialog({
                     | "start_today"
                     | "align_renewal"
                     | "backdate_start"
+                    | "historical_exact_cycle"
                 )
               }
               disabled={loading}
@@ -281,8 +300,8 @@ export function CreateSubscriptionDialog({
               ))}
             </select>
             <p className="text-xs text-muted-foreground">
-              Stripe-style cycle controls for renewal alignment or a backdated
-              start date.
+              Choose whether billing starts now, aligns to a renewal anchor, or
+              begins from a historical cycle that stays pending manual catch-up.
             </p>
           </div>
 
@@ -328,9 +347,10 @@ export function CreateSubscriptionDialog({
             </div>
           ) : null}
 
-          {billingCycleMode === "backdate_start" ? (
+          {billingCycleMode === "backdate_start" ||
+          billingCycleMode === "historical_exact_cycle" ? (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="backdate-start-date">Backdated start date</Label>
+              <Label htmlFor="backdate-start-date">Backdated start date (UTC)</Label>
               <input
                 id="backdate-start-date"
                 type="date"
@@ -339,6 +359,12 @@ export function CreateSubscriptionDialog({
                 onChange={(e) => setBackdateStartDate(e.target.value)}
                 disabled={loading}
               />
+              {billingCycleMode === "historical_exact_cycle" ? (
+                <p className="text-xs text-muted-foreground">
+                  The subscription will keep this exact historical cycle and stay
+                  in manual catch-up mode until an operator closes overdue cycles.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -353,7 +379,11 @@ export function CreateSubscriptionDialog({
                   e.target.value as "create_prorations" | "none"
                 )
               }
-              disabled={loading || isMeteredPrice}
+              disabled={
+                loading ||
+                isMeteredPrice ||
+                billingCycleMode === "historical_exact_cycle"
+              }
             >
               <option value="create_prorations">Create prorations</option>
               <option value="none">None</option>
@@ -361,7 +391,9 @@ export function CreateSubscriptionDialog({
             <p className="text-xs text-muted-foreground">
               {isMeteredPrice
                 ? "Metered prices only support proration_behavior=none in this version."
-                : "Applies when the initial billing period is anchored or backdated."}
+                : billingCycleMode === "historical_exact_cycle"
+                  ? "Historical exact cycles do not create an immediate proration invoice."
+                  : "Applies when the initial billing period is anchored or backdated."}
             </p>
           </div>
 

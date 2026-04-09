@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { CreateMeterDialog } from "@/app/(protected)/billing/meters/_components/create-meter-dialog";
 import { MetadataEditor } from "@/components/metadata-editor";
@@ -44,6 +44,10 @@ export function CreatePriceDialog({
   const [selectedMeterId, setSelectedMeterId] = useState("");
   const [metadata, setMetadata] = useState<Record<string, string>>({});
 
+  const resolvedMeterId = meterOptions.some((meter) => meter.id === selectedMeterId)
+    ? selectedMeterId
+    : meterOptions[0]?.id ?? "";
+
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
 
@@ -56,28 +60,13 @@ export function CreatePriceDialog({
     }
   }
 
-  useEffect(() => {
-    if (!open || priceType !== "recurring" || usageType !== "metered") {
-      return;
-    }
-
-    if (
-      selectedMeterId &&
-      meterOptions.some((meter) => meter.id === selectedMeterId)
-    ) {
-      return;
-    }
-
-    setSelectedMeterId(meterOptions[0]?.id ?? "");
-  }, [meterOptions, open, priceType, selectedMeterId, usageType]);
-
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     if (
       priceType === "recurring" &&
       usageType === "metered" &&
-      !selectedMeterId
+      !resolvedMeterId
     ) {
       setError("Create or select an active meter before saving this price");
       return;
@@ -111,7 +100,7 @@ export function CreatePriceDialog({
               interval_count: 1,
               usage_type: usageType,
             },
-            meter: usageType === "metered" ? selectedMeterId : undefined,
+            meter: usageType === "metered" ? resolvedMeterId : undefined,
           }
         : {
             product: productId,
@@ -160,7 +149,7 @@ export function CreatePriceDialog({
         <Plus data-icon="inline-start" />
         Add price
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Create price</DialogTitle>
           <DialogDescription>
@@ -225,9 +214,13 @@ export function CreatePriceDialog({
                   id="usage_type"
                   name="usage_type"
                   value={usageType}
-                  onChange={(e) =>
-                    setUsageType(e.target.value as "licensed" | "metered")
-                  }
+                  onChange={(e) => {
+                    const nextUsageType = e.target.value as "licensed" | "metered";
+                    setUsageType(nextUsageType);
+                    if (nextUsageType === "metered" && !resolvedMeterId) {
+                      setSelectedMeterId(meterOptions[0]?.id ?? "");
+                    }
+                  }}
                   className="flex h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <option value="licensed">Licensed</option>
@@ -239,7 +232,7 @@ export function CreatePriceDialog({
           {priceType === "recurring" && usageType === "metered" && (
             <>
               <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <Label htmlFor="meter">Meter</Label>
                   <CreateMeterDialog
                     onCreated={handleInlineMeterCreated}
@@ -253,7 +246,7 @@ export function CreatePriceDialog({
                 <select
                   id="meter"
                   name="meter"
-                  value={selectedMeterId}
+                  value={resolvedMeterId}
                   onChange={(e) => setSelectedMeterId(e.target.value)}
                   required={meterOptions.length > 0}
                   className="flex h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"

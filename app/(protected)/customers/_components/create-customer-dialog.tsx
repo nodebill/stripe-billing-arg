@@ -79,7 +79,7 @@ export function CreateCustomerDialog({ onCreated }: { onCreated: () => void }) {
         <Plus data-icon="inline-start" />
         Add customer
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create customer</DialogTitle>
           <DialogDescription>
@@ -141,7 +141,7 @@ export function CreateCustomerDialog({ onCreated }: { onCreated: () => void }) {
                 placeholder="e.g. Piso 4, Depto B"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="address_city">City</Label>
                 <Input
@@ -159,7 +159,7 @@ export function CreateCustomerDialog({ onCreated }: { onCreated: () => void }) {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="address_postal_code">Postal code</Label>
                 <Input

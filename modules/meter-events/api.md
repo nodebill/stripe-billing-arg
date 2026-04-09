@@ -21,4 +21,5 @@ Rules:
 - `timestamp` defaults to the current Unix time when omitted.
 - `timestamp` must be within the last 35 days and no more than 5 minutes in the future.
 - If `identifier` is replayed, the endpoint returns the original event with status `200` instead of creating a duplicate.
-
+- If the usage lands before the current open cycle and that earlier cycle has not been invoiced yet, the event is billed on that original cycle's renewal invoice.
+- If the original cycle was already invoiced, the event remains billable and is carried forward onto the next renewal invoice as a separate line item.

@@ -50,7 +50,7 @@ export function DeleteProductDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <Trash2 />
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Delete product</DialogTitle>
           <DialogDescription>
