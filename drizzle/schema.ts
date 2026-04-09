@@ -57,9 +57,10 @@ export const meterEvents = pgTable(
     customerId: text("customer_id").notNull(),
     identifier: text("identifier").notNull(),
     eventName: text("event_name").notNull(),
-    value: integer("value").notNull(),
+    value: bigint("value", { mode: "number" }).notNull(),
     eventTimestamp: timestamp("event_timestamp", { withTimezone: true })
       .notNull(),
+    invoiceLineItemId: text("invoice_line_item_id"),
     livemode: boolean("livemode").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -113,6 +114,23 @@ export const customers = pgTable("customers", {
     .$type<Record<string, string>>()
     .default({})
     .notNull(),
+  address:
+    jsonb("address").$type<{
+      line1: string;
+      line2?: string;
+      city?: string;
+      state?: string;
+      postal_code?: string;
+      country?: string;
+    } | null>(),
+  taxId:
+    jsonb("tax_id").$type<{
+      id: string;
+      type: string;
+      value: string;
+      customer: string;
+      created: number;
+    } | null>(),
   livemode: boolean("livemode").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
@@ -142,6 +160,10 @@ export const subscriptions = pgTable("subscriptions", {
   id: text("id").primaryKey(),
   customerId: text("customer_id").notNull(),
   status: text("status").$type<"active" | "past_due" | "canceled">().notNull(),
+  renewalMode: text("renewal_mode")
+    .$type<"automatic" | "manual_until_current">()
+    .default("automatic")
+    .notNull(),
   collectionMethod: text("collection_method")
     .$type<"charge_automatically" | "send_invoice">()
     .notNull(),
@@ -150,6 +172,8 @@ export const subscriptions = pgTable("subscriptions", {
   canceledAt: timestamp("canceled_at", { withTimezone: true }),
   endedAt: timestamp("ended_at", { withTimezone: true }),
   livemode: boolean("livemode").default(false).notNull(),
+  billingAnchorStart: timestamp("billing_anchor_start", { withTimezone: true })
+    .notNull(),
   currentPeriodStart: timestamp("current_period_start", { withTimezone: true })
     .notNull(),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true })
@@ -188,6 +212,7 @@ export const invoices = pgTable(
       .notNull(),
     currency: text("currency").notNull(),
     subtotal: integer("subtotal").notNull(),
+    taxAmount: integer("tax_amount").default(0).notNull(),
     amountDue: integer("amount_due").notNull(),
     amountPaid: integer("amount_paid").default(0).notNull(),
     dueDate: timestamp("due_date", { withTimezone: true }),
@@ -216,7 +241,10 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
   id: text("id").primaryKey(),
   invoiceId: text("invoice_id").notNull(),
   priceId: text("price_id").notNull(),
-  quantity: integer("quantity").default(1).notNull(),
+  billingReason: text("billing_reason")
+    .$type<"licensed_recurring" | "metered_recurring" | "metered_carryforward">()
+    .notNull(),
+  quantity: bigint("quantity", { mode: "number" }).default(1).notNull(),
   amount: integer("amount").notNull(),
   currency: text("currency").notNull(),
   periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
@@ -247,6 +275,63 @@ export const invoiceDeliveries = pgTable("invoice_deliveries", {
     .defaultNow()
     .notNull(),
 });
+
+export const subscriptionSchedules = pgTable(
+  "subscription_schedules",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id").notNull(),
+    baselinePriceId: text("baseline_price_id").notNull(),
+    status: text("status")
+      .$type<
+        "not_started" | "active" | "completed" | "canceled" | "released"
+      >()
+      .notNull(),
+    endBehavior: text("end_behavior")
+      .$type<"release" | "cancel">()
+      .notNull(),
+    currentPhaseId: text("current_phase_id"),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    livemode: boolean("livemode").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("subscription_schedules_subscription_id_idx").on(
+      table.subscriptionId
+    ),
+  ]
+);
+
+export const subscriptionSchedulePhases = pgTable(
+  "subscription_schedule_phases",
+  {
+    id: text("id").primaryKey(),
+    scheduleId: text("schedule_id").notNull(),
+    priceId: text("price_id").notNull(),
+    startDate: timestamp("start_date", { withTimezone: true }).notNull(),
+    endDate: timestamp("end_date", { withTimezone: true }).notNull(),
+    orderIndex: integer("order_index").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("subscription_schedule_phases_schedule_order_idx").on(
+      table.scheduleId,
+      table.orderIndex
+    ),
+  ]
+);
 
 export const billingProcessorState = pgTable("billing_processor_state", {
   id: text("id").primaryKey(),

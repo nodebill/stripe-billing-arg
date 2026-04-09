@@ -57,7 +57,7 @@ export const meterEvents = pgTable(
     customerId: text("customer_id").notNull(),
     identifier: text("identifier").notNull(),
     eventName: text("event_name").notNull(),
-    value: integer("value").notNull(),
+    value: bigint("value", { mode: "number" }).notNull(),
     eventTimestamp: timestamp("event_timestamp", { withTimezone: true })
       .notNull(),
     invoiceLineItemId: text("invoice_line_item_id"),
@@ -244,7 +244,7 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
   billingReason: text("billing_reason")
     .$type<"licensed_recurring" | "metered_recurring" | "metered_carryforward">()
     .notNull(),
-  quantity: integer("quantity").default(1).notNull(),
+  quantity: bigint("quantity", { mode: "number" }).default(1).notNull(),
   amount: integer("amount").notNull(),
   currency: text("currency").notNull(),
   periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
