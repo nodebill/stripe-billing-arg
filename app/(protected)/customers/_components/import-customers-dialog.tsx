@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Copy, FileSpreadsheet } from "lucide-react";
 import {
   CUSTOMER_IMPORT_EXAMPLE_CSV,
+  CUSTOMER_IMPORT_METADATA_PREFIX,
   CUSTOMER_IMPORT_STANDARD_HEADERS,
 } from "@/modules/customers/import-contract";
 import type { CustomerImportResult } from "@/modules/customers/types";
@@ -32,13 +33,14 @@ const columnDefinitions = [
   { header: "name", required: "Optional", notes: "Customer display name." },
   { header: "email", required: "Optional", notes: "Must be a valid email when present." },
   { header: "description", required: "Optional", notes: "Internal description for the customer." },
-  { header: "external_id", required: "Optional", notes: "Stored as `metadata.external_id`." },
   { header: "address_line1", required: "Address only", notes: "Required when any address field is present." },
   { header: "address_line2", required: "Optional", notes: "Additional address information." },
   { header: "address_city", required: "Optional", notes: "City or locality." },
   { header: "address_state", required: "Optional", notes: "State or province." },
   { header: "address_postal_code", required: "Optional", notes: "Postal or ZIP code." },
   { header: "address_country", required: "Optional", notes: "Two-letter or internal country code." },
+  { header: "metadata.*", required: "Optional", notes: "Any extra column prefixed with `metadata.` becomes one metadata entry." },
+  { header: "external_id", required: "Legacy alias", notes: "Still maps to `metadata.external_id`, but `metadata.external_id` is preferred." },
 ] as const;
 
 export function ImportCustomersDialog({
@@ -133,7 +135,9 @@ export function ImportCustomersDialog({
               <div className="border-b px-4 py-3">
                 <p className="font-medium">Expected CSV structure</p>
                 <p className="text-sm text-muted-foreground">
-                  Use the fixed header set below. This import is create-only.
+                  Use the standard header set below. Extra columns are only
+                  allowed when they start with `metadata.`. This import is
+                  create-only.
                 </p>
               </div>
               <Table>
@@ -187,6 +191,7 @@ export function ImportCustomersDialog({
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Required headers: {CUSTOMER_IMPORT_STANDARD_HEADERS.join(", ")}.
+                Optional extra columns: {CUSTOMER_IMPORT_METADATA_PREFIX}*.
               </p>
             </div>
           </div>

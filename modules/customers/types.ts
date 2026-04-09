@@ -33,13 +33,13 @@ export type ImportedCustomerCsvRow = {
   name: string;
   email: string;
   description: string;
-  external_id: string;
   address_line1: string;
   address_line2: string;
   address_city: string;
   address_state: string;
   address_postal_code: string;
   address_country: string;
+  metadata: Record<string, string>;
 };
 
 export type CustomerImportError = {
