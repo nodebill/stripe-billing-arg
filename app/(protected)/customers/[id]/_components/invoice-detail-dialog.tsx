@@ -110,11 +110,19 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
                   {formatUtcDateRange(detail.period_start, detail.period_end)}
                 </p>
               </div>
-              <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
-                <p className="font-medium">Amount due</p>
-                <p className="mt-1 text-muted-foreground">
-                  {formatPriceAmount(String(detail.amount_due), detail.currency)}
-                </p>
+              <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm space-y-1">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{formatPriceAmount(String(detail.subtotal), detail.currency)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>IVA (21%)</span>
+                  <span>{formatPriceAmount(String(detail.tax_amount), detail.currency)}</span>
+                </div>
+                <div className="flex justify-between font-medium pt-1 border-t">
+                  <span>Total</span>
+                  <span>{formatPriceAmount(String(detail.amount_due), detail.currency)}</span>
+                </div>
               </div>
             </div>
 

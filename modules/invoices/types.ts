@@ -27,6 +27,7 @@ export type Invoice = {
   collection_method: InvoiceCollectionMethod;
   currency: string;
   subtotal: number;
+  tax_amount: number;
   amount_due: number;
   amount_paid: number;
   due_date: number | null;

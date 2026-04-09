@@ -212,6 +212,7 @@ export const invoices = pgTable(
       .notNull(),
     currency: text("currency").notNull(),
     subtotal: integer("subtotal").notNull(),
+    taxAmount: integer("tax_amount").default(0).notNull(),
     amountDue: integer("amount_due").notNull(),
     amountPaid: integer("amount_paid").default(0).notNull(),
     dueDate: timestamp("due_date", { withTimezone: true }),
