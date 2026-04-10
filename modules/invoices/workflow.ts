@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-import { and, asc, eq, inArray } from "drizzle-orm";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   customers,
@@ -10,6 +8,8 @@ import {
 import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { runWithBillingLease } from "@/modules/billing/service";
 import { toUnix } from "@/modules/shared/time";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { Buffer } from "node:buffer";
 import { getInvoice } from "./service";
 import type {
   InvoiceBatchResult,
@@ -147,6 +147,32 @@ const afipSessionCache = new Map<string, AfipSession>();
 
 export class InvoiceWorkflowError extends Error {}
 
+type WorkflowLogLevel = "info" | "warn" | "error";
+
+function logWorkflow(
+  level: WorkflowLogLevel,
+  message: string,
+  context?: Record<string, unknown>,
+) {
+  const payload = context ? { message, ...context } : { message };
+  if (level === "error") {
+    console.error("[invoice-workflow]", payload);
+    return;
+  }
+  if (level === "warn") {
+    console.warn("[invoice-workflow]", payload);
+    return;
+  }
+  console.info("[invoice-workflow]", payload);
+}
+
+function maskEmail(email: string) {
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) return "invalid_email";
+  if (localPart.length <= 2) return `**@${domain}`;
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
 function emptyBatchResult(action: "issue" | "send"): InvoiceBatchResult {
   return {
     object: "invoice_batch",
@@ -177,7 +203,9 @@ function isJuridicalTaxId(taxId: string) {
 function requireEnv(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new InvoiceWorkflowError(`Missing required environment variable: ${name}`);
+    throw new InvoiceWorkflowError(
+      `Missing required environment variable: ${name}`,
+    );
   }
   return value;
 }
@@ -191,7 +219,9 @@ function getAfipConfig(): AfipConfig {
       process.env.AFIP_AUTH_TAX_ID?.trim() ?? requireEnv("TALO_CUIT"),
     environment:
       process.env.AFIP_ENVIRONMENT?.trim() === "dev" ? "dev" : "prod",
-    baseUrl: process.env.AFIP_BASE_URL?.trim() || "https://app.afipsdk.com/api/v1/afip",
+    baseUrl:
+      process.env.AFIP_BASE_URL?.trim() ||
+      "https://app.afipsdk.com/api/v1/afip",
     pointOfSale: Number(process.env.AFIP_POINT_OF_SALE?.trim() || "2"),
   };
 }
@@ -208,7 +238,8 @@ function getEmailConfig(): EmailConfig {
   return {
     apiKey: requireEnv("RESEND_API_KEY"),
     from: requireEnv("INVOICE_EMAIL_FROM"),
-    subjectPrefix: process.env.INVOICE_EMAIL_SUBJECT_PREFIX?.trim() || "Factura",
+    subjectPrefix:
+      process.env.INVOICE_EMAIL_SUBJECT_PREFIX?.trim() || "Factura",
     bcc: (process.env.INVOICE_EMAIL_BCC || "")
       .split(",")
       .map((value) => value.trim())
@@ -234,14 +265,16 @@ function buildPdfFileName(documentNumber: number, baseFilePath?: string) {
   const month = now.getUTCMonth();
   const prevMonth = String(month === 0 ? 12 : month).padStart(2, "0");
   const year = month === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
-  const prefix = baseFilePath ? baseFilePath.replace(/\/$/, "") : `${year}${prevMonth}`;
+  const prefix = baseFilePath
+    ? baseFilePath.replace(/\/$/, "")
+    : `${year}${prevMonth}`;
   return `${prefix}/factura_${documentNumber}.pdf`;
 }
 
 function resolveAdvancedRenewalMode(
   subscription: SubscriptionRow,
   nextPeriodEnd: Date,
-  runAt: Date
+  runAt: Date,
 ) {
   if (subscription.renewalMode === "automatic") {
     return "automatic" as const;
@@ -255,6 +288,10 @@ function resolveAdvancedRenewalMode(
 async function loadSelectedInvoices(invoiceIds: string[]) {
   const db = getDb();
   const uniqueInvoiceIds = [...new Set(invoiceIds)];
+  logWorkflow("info", "Loading selected invoices", {
+    requestedCount: invoiceIds.length,
+    uniqueCount: uniqueInvoiceIds.length,
+  });
   const rows = await db
     .select()
     .from(invoices)
@@ -263,10 +300,17 @@ async function loadSelectedInvoices(invoiceIds: string[]) {
 
   if (rows.length !== uniqueInvoiceIds.length) {
     const foundIds = new Set(rows.map((row) => row.id));
-    const missingId = uniqueInvoiceIds.find((invoiceId) => !foundIds.has(invoiceId));
-    throw new InvoiceWorkflowError(`No such invoice: '${missingId ?? "unknown"}'`);
+    const missingId = uniqueInvoiceIds.find(
+      (invoiceId) => !foundIds.has(invoiceId),
+    );
+    throw new InvoiceWorkflowError(
+      `No such invoice: '${missingId ?? "unknown"}'`,
+    );
   }
 
+  logWorkflow("info", "Loaded selected invoices", {
+    loadedCount: rows.length,
+  });
   return rows;
 }
 
@@ -303,8 +347,17 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
   const cached = afipSessionCache.get(cacheKey);
 
   if (cached?.token && cached.sign) {
+    logWorkflow("info", "Using cached AFIP session", {
+      environment: config.environment,
+      representedTaxId: config.representedTaxId,
+    });
     return cached;
   }
+
+  logWorkflow("info", "Creating AFIP session", {
+    environment: config.environment,
+    representedTaxId: config.representedTaxId,
+  });
 
   const response = await fetch(`${config.baseUrl}/auth`, {
     method: "POST",
@@ -323,17 +376,31 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
 
   const data = (await response.json()) as AfipSession & { error?: string };
   if (!response.ok || !data.token || !data.sign) {
+    logWorkflow("error", "AFIP authentication failed", {
+      environment: config.environment,
+      representedTaxId: config.representedTaxId,
+      status: response.status,
+      hasToken: Boolean(data.token),
+      hasSign: Boolean(data.sign),
+      error: data.error ?? null,
+    });
     throw new InvoiceWorkflowError(data.error || "AFIP authentication failed");
   }
 
   afipSessionCache.set(cacheKey, data);
+  logWorkflow("info", "AFIP session created", {
+    environment: config.environment,
+    representedTaxId: config.representedTaxId,
+  });
   return data;
 }
 
-async function requestAfip(
-  config: AfipConfig,
-  body: Record<string, unknown>
-) {
+async function requestAfip(config: AfipConfig, body: Record<string, unknown>) {
+  logWorkflow("info", "Sending AFIP request", {
+    method: typeof body.method === "string" ? body.method : "unknown",
+    wsid: typeof body.wsid === "string" ? body.wsid : "unknown",
+    environment: config.environment,
+  });
   const response = await fetch(`${config.baseUrl}/requests`, {
     method: "POST",
     headers: {
@@ -348,11 +415,22 @@ async function requestAfip(
 
   const data = await response.json();
   if (!response.ok) {
+    logWorkflow("error", "AFIP request failed", {
+      method: typeof body.method === "string" ? body.method : "unknown",
+      wsid: typeof body.wsid === "string" ? body.wsid : "unknown",
+      status: response.status,
+      error: data?.error ?? data?.message ?? null,
+    });
     throw new InvoiceWorkflowError(
-      data?.error || data?.message || "AFIP request failed"
+      data?.error || data?.message || "AFIP request failed",
     );
   }
 
+  logWorkflow("info", "AFIP request completed", {
+    method: typeof body.method === "string" ? body.method : "unknown",
+    wsid: typeof body.wsid === "string" ? body.wsid : "unknown",
+    status: response.status,
+  });
   return data;
 }
 
@@ -376,7 +454,10 @@ function formatFiscalAddress(address: any) {
     address.localidad,
     address.descripcionProvincia,
     address.codPostal,
-  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  ].filter(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  );
 
   return parts.join(", ");
 }
@@ -401,18 +482,23 @@ function resolveTaxCondition(persona: any, taxId: string): InvoiceTaxCondition {
   return "CONSUMIDOR_FINAL";
 }
 
-async function loadCustomerFiscalProfile(customer: CustomerRow): Promise<CustomerFiscalProfile> {
+async function loadCustomerFiscalProfile(
+  customer: CustomerRow,
+): Promise<CustomerFiscalProfile> {
+  logWorkflow("info", "Loading customer fiscal profile", {
+    customerId: customer.id,
+  });
   const rawTaxId = customer.taxId?.value?.trim();
   if (!rawTaxId) {
     throw new InvoiceWorkflowError(
-      `Customer '${customer.id}' is missing a tax ID required for legal invoicing`
+      `Customer '${customer.id}' is missing a tax ID required for legal invoicing`,
     );
   }
 
   const taxId = sanitizeTaxId(rawTaxId);
   if (!taxId) {
     throw new InvoiceWorkflowError(
-      `Customer '${customer.id}' does not have a valid numeric tax ID`
+      `Customer '${customer.id}' does not have a valid numeric tax ID`,
     );
   }
 
@@ -435,17 +521,24 @@ async function loadCustomerFiscalProfile(customer: CustomerRow): Promise<Custome
 
   if (!businessName || !address) {
     throw new InvoiceWorkflowError(
-      `AFIP did not return enough fiscal data for customer '${customer.id}'`
+      `AFIP did not return enough fiscal data for customer '${customer.id}'`,
     );
   }
 
   const taxCondition = resolveTaxCondition(persona, taxId);
+  logWorkflow("info", "Customer fiscal profile resolved", {
+    customerId: customer.id,
+    taxCondition,
+    invoiceType:
+      taxCondition === "CONSUMIDOR_FINAL" ? "FACTURA_B" : "FACTURA_A",
+  });
   return {
     businessName,
     address,
     taxId,
     taxCondition,
-    invoiceType: taxCondition === "CONSUMIDOR_FINAL" ? "FACTURA_B" : "FACTURA_A",
+    invoiceType:
+      taxCondition === "CONSUMIDOR_FINAL" ? "FACTURA_B" : "FACTURA_A",
   };
 }
 
@@ -468,8 +561,12 @@ const RECEIVER_IVA_CONDITION: Record<InvoiceTaxCondition, number> = {
 async function getVoucherNumber(
   config: AfipConfig,
   session: AfipSession,
-  invoiceType: InvoiceType
+  invoiceType: InvoiceType,
 ) {
+  logWorkflow("info", "Fetching AFIP voucher number", {
+    invoiceType,
+    pointOfSale: config.pointOfSale,
+  });
   const data = await requestAfip(config, {
     method: "FECompUltimoAutorizado",
     wsid: "wsfe",
@@ -487,20 +584,25 @@ async function getVoucherNumber(
   const lastVoucher = Number(
     data?.FECompUltimoAutorizadoResult?.CbteNro ??
       data?.FECompUltimoAutorizadoResult?.cbteNro ??
-      0
+      0,
   );
 
   if (!Number.isFinite(lastVoucher)) {
     throw new InvoiceWorkflowError("Unable to fetch AFIP voucher number");
   }
 
+  logWorkflow("info", "AFIP voucher number fetched", {
+    invoiceType,
+    pointOfSale: config.pointOfSale,
+    lastVoucher,
+  });
   return lastVoucher;
 }
 
 function resolveIssueOutcome(
   collectionMethod: InvoiceCollectionMethod,
   invoiceDueDate: Date | null,
-  runAt: Date
+  runAt: Date,
 ) {
   const paymentStatus: InvoicePaymentStatus =
     collectionMethod === "charge_automatically" ? "paid" : "pending";
@@ -521,11 +623,11 @@ function buildAfipIssueRequest(
   session: AfipSession,
   config: AfipConfig,
   voucherNumber: number,
-  runAt: Date
+  runAt: Date,
 ): AfipIssueRequestPayload {
   if (invoice.currency.toUpperCase() !== "ARS") {
     throw new InvoiceWorkflowError(
-      `Invoice '${invoice.id}' uses ${invoice.currency}; legal invoicing currently supports ARS only`
+      `Invoice '${invoice.id}' uses ${invoice.currency}; legal invoicing currently supports ARS only`,
     );
   }
 
@@ -584,22 +686,31 @@ function buildAfipIssueRequest(
 async function generateAfipInvoice(
   invoice: InvoiceRow,
   fiscalProfile: CustomerFiscalProfile,
-  runAt: Date
+  runAt: Date,
 ): Promise<AfipInvoiceData> {
+  logWorkflow("info", "Generating AFIP invoice", {
+    invoiceId: invoice.id,
+    invoiceType: fiscalProfile.invoiceType,
+    runAt: runAt.toISOString(),
+  });
   const config = getAfipConfig();
   const session = await initializeAfipSession({
     ...config,
     pointOfSale: config.pointOfSale,
     baseUrl: config.baseUrl,
   });
-  const voucherNumber = await getVoucherNumber(config, session, fiscalProfile.invoiceType);
+  const voucherNumber = await getVoucherNumber(
+    config,
+    session,
+    fiscalProfile.invoiceType,
+  );
   const afipRequest = buildAfipIssueRequest(
     invoice,
     fiscalProfile,
     session,
     config,
     voucherNumber,
-    runAt
+    runAt,
   );
 
   const data = await requestAfip(config, {
@@ -610,6 +721,13 @@ async function generateAfipInvoice(
 
   const detail =
     data?.FECAESolicitarResult?.FeDetResp?.FECAEDetResponse?.[0] ?? null;
+  logWorkflow("info", "AFIP invoice detail received", {
+    invoiceId: invoice.id,
+    hasCAE: Boolean(detail?.CAE),
+    hasInvoiceNumber: Boolean(detail?.CbteDesde),
+    hasCaeDueDate: Boolean(detail?.CAEFchVto),
+    resultCode: detail?.Resultado ?? null,
+  });
 
   if (!detail?.CAE || !detail?.CbteDesde || !detail?.CAEFchVto) {
     throw new InvoiceWorkflowError("AFIP invoice generation failed");
@@ -633,7 +751,7 @@ function buildPdfRequest(
     caeDueDate: string;
   },
   runAt: Date,
-  config: PdfConfig
+  config: PdfConfig,
 ): PdfRequestPayload {
   return {
     invoiceNumber: afipInvoice.invoiceNumber,
@@ -650,7 +768,10 @@ function buildPdfRequest(
     netPaid: invoice.subtotal,
     totalPaid: invoice.amountDue,
     taxPaid: invoice.taxAmount,
-    s3FileName: buildPdfFileName(Number(fiscalProfile.taxId), config.baseFilePath),
+    s3FileName: buildPdfFileName(
+      Number(fiscalProfile.taxId),
+      config.baseFilePath,
+    ),
   };
 }
 
@@ -658,15 +779,19 @@ async function generateInvoicePdf(
   invoice: InvoiceRow,
   fiscalProfile: CustomerFiscalProfile,
   afipInvoice: AfipInvoiceData,
-  runAt: Date
+  runAt: Date,
 ) {
+  logWorkflow("info", "Generating invoice PDF", {
+    invoiceId: invoice.id,
+    afipInvoiceNumber: afipInvoice.invoiceNumber,
+  });
   const config = getPdfConfig();
   const pdfRequest = buildPdfRequest(
     invoice,
     fiscalProfile,
     afipInvoice,
     runAt,
-    config
+    config,
   );
   const response = await fetch(config.endpoint, {
     method: "POST",
@@ -679,19 +804,32 @@ async function generateInvoicePdf(
 
   const data = await response.json();
   if (!response.ok || !data?.fileUrl) {
+    logWorkflow("error", "Invoice PDF generation failed", {
+      invoiceId: invoice.id,
+      status: response.status,
+      hasFileUrl: Boolean(data?.fileUrl),
+    });
     throw new InvoiceWorkflowError("Invoice PDF generation failed");
   }
 
+  logWorkflow("info", "Invoice PDF generated", {
+    invoiceId: invoice.id,
+    afipInvoiceNumber: afipInvoice.invoiceNumber,
+  });
   return String(data.fileUrl);
 }
 
 async function buildIssuePreviewContext(
   invoice: InvoiceRow,
-  runAt: Date
+  runAt: Date,
 ): Promise<IssuePreviewContext> {
+  logWorkflow("info", "Building issue preview context", {
+    invoiceId: invoice.id,
+    invoiceStatus: invoice.status,
+  });
   if (invoice.status !== "draft") {
     throw new InvoiceWorkflowError(
-      `Invoice '${invoice.id}' is ${invoice.status} and cannot be issued`
+      `Invoice '${invoice.id}' is ${invoice.status} and cannot be issued`,
     );
   }
 
@@ -702,7 +840,9 @@ async function buildIssuePreviewContext(
 
   const subscription = await getSubscriptionRow(invoice.subscriptionId);
   if (!subscription) {
-    throw new InvoiceWorkflowError(`No such subscription: '${invoice.subscriptionId}'`);
+    throw new InvoiceWorkflowError(
+      `No such subscription: '${invoice.subscriptionId}'`,
+    );
   }
 
   const fiscalProfile = await loadCustomerFiscalProfile(customer);
@@ -711,13 +851,13 @@ async function buildIssuePreviewContext(
   const voucherNumber = await getVoucherNumber(
     afipConfig,
     session,
-    fiscalProfile.invoiceType
+    fiscalProfile.invoiceType,
   );
   const pdfConfig = getPdfConfig();
   const { paymentStatus, dueDate } = resolveIssueOutcome(
     invoice.collectionMethod,
     invoice.dueDate,
-    runAt
+    runAt,
   );
   const estimatedInvoiceNumber = voucherNumber + 1;
   const afipRequest = buildAfipIssueRequest(
@@ -726,7 +866,7 @@ async function buildIssuePreviewContext(
     session,
     afipConfig,
     voucherNumber,
-    runAt
+    runAt,
   );
   const pdfRequest = buildPdfRequest(
     invoice,
@@ -738,9 +878,15 @@ async function buildIssuePreviewContext(
       caeDueDate: "PENDING_CAE_DUE_DATE",
     },
     runAt,
-    pdfConfig
+    pdfConfig,
   );
 
+  logWorkflow("info", "Issue preview context built", {
+    invoiceId: invoice.id,
+    estimatedInvoiceNumber,
+    expectedPaymentStatus: paymentStatus,
+    dueDate: dueDate?.toISOString() ?? null,
+  });
   return {
     subscription,
     fiscalProfile,
@@ -758,8 +904,14 @@ async function buildIssuePreviewContext(
 }
 
 async function fetchPdfBase64(pdfUrl: string) {
+  logWorkflow("info", "Downloading invoice PDF", {
+    hasPdfUrl: Boolean(pdfUrl),
+  });
   const response = await fetch(pdfUrl);
   if (!response.ok) {
+    logWorkflow("error", "Invoice PDF download failed", {
+      status: response.status,
+    });
     throw new InvoiceWorkflowError("Failed to download invoice PDF");
   }
 
@@ -767,7 +919,15 @@ async function fetchPdfBase64(pdfUrl: string) {
   return Buffer.from(bytes).toString("base64");
 }
 
-async function sendInvoiceEmail(invoice: InvoiceRow, recipient: string, pdfUrl: string) {
+async function sendInvoiceEmail(
+  invoice: InvoiceRow,
+  recipient: string,
+  pdfUrl: string,
+) {
+  logWorkflow("info", "Sending invoice email", {
+    invoiceId: invoice.id,
+    recipient: maskEmail(recipient),
+  });
   const config = getEmailConfig();
   const attachment = await fetchPdfBase64(pdfUrl);
   const month = invoice.periodStart.getUTCMonth() + 1;
@@ -802,15 +962,25 @@ async function sendInvoiceEmail(invoice: InvoiceRow, recipient: string, pdfUrl: 
 
   const data = await response.json();
   if (!response.ok || data?.error) {
+    logWorkflow("error", "Invoice email sending failed", {
+      invoiceId: invoice.id,
+      recipient: maskEmail(recipient),
+      status: response.status,
+      error: data?.error?.message ?? data?.message ?? null,
+    });
     throw new InvoiceWorkflowError(
-      data?.error?.message || data?.message || "Failed to send invoice email"
+      data?.error?.message || data?.message || "Failed to send invoice email",
     );
   }
+  logWorkflow("info", "Invoice email sent", {
+    invoiceId: invoice.id,
+    recipient: maskEmail(recipient),
+  });
 }
 
 async function appendProcessedResult(
   result: InvoiceBatchResult,
-  invoiceId: string
+  invoiceId: string,
 ) {
   const invoice = await getInvoice(invoiceId);
   result.processed_invoices += 1;
@@ -823,7 +993,7 @@ async function appendProcessedResult(
 
 function appendPreviewedResult(
   result: InvoiceIssuePreviewResult,
-  preview: InvoiceIssuePreview
+  preview: InvoiceIssuePreview,
 ) {
   result.previewed_invoices += 1;
   result.results.push({
@@ -836,7 +1006,7 @@ function appendPreviewedResult(
 function appendFailedResult(
   result: InvoiceBatchResult,
   invoiceId: string,
-  error: unknown
+  error: unknown,
 ) {
   result.failed_invoices += 1;
   result.results.push({
@@ -850,7 +1020,7 @@ function appendFailedResult(
 function appendFailedPreviewResult(
   result: InvoiceIssuePreviewResult,
   invoiceId: string,
-  error: unknown
+  error: unknown,
 ) {
   result.failed_invoices += 1;
   result.results.push({
@@ -862,13 +1032,21 @@ function appendFailedPreviewResult(
 }
 
 async function issueInvoiceRow(invoice: InvoiceRow, runAt: Date) {
+  logWorkflow("info", "Starting invoice issue", {
+    invoiceId: invoice.id,
+    runAt: runAt.toISOString(),
+  });
   const preview = await buildIssuePreviewContext(invoice, runAt);
-  const afipInvoice = await generateAfipInvoice(invoice, preview.fiscalProfile, runAt);
+  const afipInvoice = await generateAfipInvoice(
+    invoice,
+    preview.fiscalProfile,
+    runAt,
+  );
   const pdfUrl = await generateInvoicePdf(
     invoice,
     preview.fiscalProfile,
     afipInvoice,
-    runAt
+    runAt,
   );
 
   const legalDocument: InvoiceLegalDocument = {
@@ -908,25 +1086,38 @@ async function issueInvoiceRow(invoice: InvoiceRow, runAt: Date) {
           renewalMode: resolveAdvancedRenewalMode(
             preview.subscription,
             invoice.periodEnd,
-            runAt
+            runAt,
           ),
-          status: preview.subscription.status === "past_due" ? "past_due" : "active",
+          status:
+            preview.subscription.status === "past_due" ? "past_due" : "active",
           updatedAt: runAt,
         })
         .where(eq(subscriptions.id, preview.subscription.id));
     }
   });
+  logWorkflow("info", "Invoice issued successfully", {
+    invoiceId: invoice.id,
+    invoiceNumber: afipInvoice.invoiceNumber,
+    paymentStatus: preview.paymentStatus,
+  });
 }
 
 async function sendInvoiceRow(invoice: InvoiceRow, runAt: Date) {
+  logWorkflow("info", "Starting invoice send", {
+    invoiceId: invoice.id,
+    invoiceStatus: invoice.status,
+    runAt: runAt.toISOString(),
+  });
   if (invoice.status !== "invoiced") {
     throw new InvoiceWorkflowError(
-      `Invoice '${invoice.id}' is ${invoice.status} and cannot be sent`
+      `Invoice '${invoice.id}' is ${invoice.status} and cannot be sent`,
     );
   }
 
   if (!invoice.legalDocument?.pdf_url) {
-    throw new InvoiceWorkflowError(`Invoice '${invoice.id}' does not have an issued PDF`);
+    throw new InvoiceWorkflowError(
+      `Invoice '${invoice.id}' does not have an issued PDF`,
+    );
   }
 
   const customer = await getCustomerRow(invoice.customerId);
@@ -937,7 +1128,7 @@ async function sendInvoiceRow(invoice: InvoiceRow, runAt: Date) {
   const recipient = customer.email?.trim();
   if (!recipient) {
     throw new InvoiceWorkflowError(
-      `Customer '${customer.id}' is missing an email recipient`
+      `Customer '${customer.id}' is missing an email recipient`,
     );
   }
 
@@ -969,13 +1160,21 @@ async function sendInvoiceRow(invoice: InvoiceRow, runAt: Date) {
       })
       .where(eq(invoices.id, invoice.id));
   });
+  logWorkflow("info", "Invoice sent successfully", {
+    invoiceId: invoice.id,
+    recipient: maskEmail(recipient),
+  });
 }
 
 export async function previewIssueInvoices(
   invoiceIds: string[],
-  runAt = new Date()
+  runAt = new Date(),
 ): Promise<InvoiceIssuePreviewResult> {
   await ensureTables();
+  logWorkflow("info", "Starting invoice issue preview batch", {
+    invoiceCount: invoiceIds.length,
+    runAt: runAt.toISOString(),
+  });
 
   const result = emptyPreviewResult();
   const rows = await loadSelectedInvoices(invoiceIds);
@@ -1002,18 +1201,34 @@ export async function previewIssueInvoices(
         },
       });
     } catch (error) {
+      logWorkflow("error", "Invoice issue preview failed", {
+        invoiceId: row.id,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
       appendFailedPreviewResult(result, row.id, error);
       break;
     }
   }
 
+  logWorkflow("info", "Finished invoice issue preview batch", {
+    previewed: result.previewed_invoices,
+    failed: result.failed_invoices,
+  });
   return result;
 }
 
-export async function issueInvoices(invoiceIds: string[]): Promise<InvoiceBatchResult> {
+export async function issueInvoices(
+  invoiceIds: string[],
+): Promise<InvoiceBatchResult> {
   await ensureTables();
+  logWorkflow("info", "Preparing invoice issue batch", {
+    invoiceCount: invoiceIds.length,
+  });
 
   return runWithBillingLease("invoice_issue", async (runAt) => {
+    logWorkflow("info", "Billing lease acquired for invoice issue", {
+      runAt: runAt.toISOString(),
+    });
     const result = emptyBatchResult("issue");
     const rows = await loadSelectedInvoices(invoiceIds);
 
@@ -1022,19 +1237,35 @@ export async function issueInvoices(invoiceIds: string[]): Promise<InvoiceBatchR
         await issueInvoiceRow(row, runAt);
         await appendProcessedResult(result, row.id);
       } catch (error) {
+        logWorkflow("error", "Invoice issue failed", {
+          invoiceId: row.id,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
         appendFailedResult(result, row.id, error);
         break;
       }
     }
 
+    logWorkflow("info", "Finished invoice issue batch", {
+      processed: result.processed_invoices,
+      failed: result.failed_invoices,
+    });
     return result;
   });
 }
 
-export async function sendInvoices(invoiceIds: string[]): Promise<InvoiceBatchResult> {
+export async function sendInvoices(
+  invoiceIds: string[],
+): Promise<InvoiceBatchResult> {
   await ensureTables();
+  logWorkflow("info", "Preparing invoice send batch", {
+    invoiceCount: invoiceIds.length,
+  });
 
   return runWithBillingLease("invoice_send", async (runAt) => {
+    logWorkflow("info", "Billing lease acquired for invoice send", {
+      runAt: runAt.toISOString(),
+    });
     const result = emptyBatchResult("send");
     const rows = await loadSelectedInvoices(invoiceIds);
 
@@ -1043,24 +1274,40 @@ export async function sendInvoices(invoiceIds: string[]): Promise<InvoiceBatchRe
         await sendInvoiceRow(row, runAt);
         await appendProcessedResult(result, row.id);
       } catch (error) {
+        logWorkflow("error", "Invoice send failed", {
+          invoiceId: row.id,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
         appendFailedResult(result, row.id, error);
         break;
       }
     }
 
+    logWorkflow("info", "Finished invoice send batch", {
+      processed: result.processed_invoices,
+      failed: result.failed_invoices,
+    });
     return result;
   });
 }
 
 export async function hasEmailDelivery(invoiceId: string) {
+  logWorkflow("info", "Checking invoice email delivery", { invoiceId });
   const db = getDb();
   const rows = await db
     .select({ id: invoiceDeliveries.id })
     .from(invoiceDeliveries)
     .where(
-      and(eq(invoiceDeliveries.invoiceId, invoiceId), eq(invoiceDeliveries.channel, "email"))
+      and(
+        eq(invoiceDeliveries.invoiceId, invoiceId),
+        eq(invoiceDeliveries.channel, "email"),
+      ),
     )
     .limit(1);
 
+  logWorkflow("info", "Invoice email delivery check completed", {
+    invoiceId,
+    delivered: Boolean(rows[0]),
+  });
   return Boolean(rows[0]);
 }
