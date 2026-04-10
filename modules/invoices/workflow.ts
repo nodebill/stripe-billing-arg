@@ -242,7 +242,7 @@ function getEmailConfig(): EmailConfig {
     apiKey: requireEnv("RESEND_API_KEY"),
     from: requireEnv("INVOICE_EMAIL_FROM"),
     subjectPrefix:
-      process.env.INVOICE_EMAIL_SUBJECT_PREFIX?.trim() || "Factura",
+      process.env.INVOICE_EMAIL_SUBJECT_PREFIX?.trim() || "Factura Talo",
     bcc: (process.env.INVOICE_EMAIL_BCC || "")
       .split(",")
       .map((value) => value.trim())
