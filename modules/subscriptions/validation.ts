@@ -152,15 +152,6 @@ export const bulkCloseSubscriptionCyclesSchema = z
     date_to: utcDateStringSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    if (!value.customer && !value.subscription && !value.date_from && !value.date_to) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "At least one filter is required: customer, subscription, date_from, or date_to",
-        path: ["customer"],
-      });
-    }
-
     if (value.date_from && value.date_to && value.date_from > value.date_to) {
       ctx.addIssue({
         code: "custom",

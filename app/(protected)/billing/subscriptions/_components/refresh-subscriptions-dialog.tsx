@@ -30,6 +30,9 @@ export function RefreshSubscriptionsDialog({
   disabled = false,
   disabledReason,
 }: RefreshSubscriptionsDialogProps) {
+  const hasFilters = Boolean(
+    filters.customer || filters.subscription || filters.date_from || filters.date_to
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,8 +90,9 @@ export function RefreshSubscriptionsDialog({
         <DialogHeader>
           <DialogTitle>Refresh subscriptions</DialogTitle>
           <DialogDescription>
-            This will close exactly one overdue billing cycle for each active
-            subscription that matches the current filters.
+            {hasFilters
+              ? "This will create or refresh exactly one draft invoice for each overdue active subscription that matches the current filters."
+              : "No exact filters are applied. This will create or refresh exactly one draft invoice for every overdue active subscription."}
           </DialogDescription>
         </DialogHeader>
 

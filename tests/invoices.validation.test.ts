@@ -5,7 +5,7 @@ import { listInvoicesSchema } from "../modules/invoices/validation";
 test("accepts global invoice list requests with limit 200", () => {
   const parsed = listInvoicesSchema.safeParse({
     limit: 200,
-    status: "open",
+    status: "draft",
     date_from: "2026-04-01",
     date_to: "2026-04-30",
   });
@@ -15,7 +15,7 @@ test("accepts global invoice list requests with limit 200", () => {
 
   assert.equal(parsed.data.limit, 200);
   assert.equal(parsed.data.customer, undefined);
-  assert.equal(parsed.data.status, "open");
+  assert.equal(parsed.data.status, "draft");
   assert.equal(parsed.data.date_from, "2026-04-01");
   assert.equal(parsed.data.date_to, "2026-04-30");
 });

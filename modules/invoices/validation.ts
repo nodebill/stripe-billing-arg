@@ -8,7 +8,7 @@ import {
 export const listInvoicesSchema = z
   .object({
     customer: customerIdSchema.optional(),
-    status: z.enum(["draft", "open", "paid", "past_due"]).optional(),
+    status: z.enum(["draft", "invoiced", "sent"]).optional(),
     date_from: utcDateStringSchema.optional(),
     date_to: utcDateStringSchema.optional(),
     limit: z.coerce.number().int().min(1).max(200).default(10),
@@ -24,3 +24,12 @@ export const listInvoicesSchema = z
       });
     }
   });
+
+export const invoiceBatchActionSchema = z
+  .object({
+    invoice_ids: z
+      .array(invoiceIdSchema)
+      .min(1, "Select at least one invoice")
+      .max(200, "You can process at most 200 invoices at once"),
+  })
+  .strict();

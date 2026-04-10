@@ -2,9 +2,7 @@ export type BillingProcessorSummary = {
   processed_subscriptions: number;
   canceled_subscriptions: number;
   created_invoices: number;
-  finalized_invoices: number;
-  paid_invoices: number;
-  sent_invoices: number;
+  refreshed_drafts: number;
   past_due_invoices: number;
 };
 
@@ -22,5 +20,4 @@ export type BillingProcessorState = {
 export type ProcessDueSubscriptionsOptions = {
   runAt?: Date;
   trigger?: string;
-  finalizationDelayMs?: number;
 };

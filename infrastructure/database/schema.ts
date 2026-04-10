@@ -205,7 +205,11 @@ export const invoices = pgTable(
     customerId: text("customer_id").notNull(),
     subscriptionId: text("subscription_id").notNull(),
     status: text("status")
-      .$type<"draft" | "open" | "paid" | "past_due">()
+      .$type<"draft" | "invoiced" | "sent">()
+      .notNull(),
+    paymentStatus: text("payment_status")
+      .$type<"pending" | "paid" | "past_due">()
+      .default("pending")
       .notNull(),
     collectionMethod: text("collection_method")
       .$type<"charge_automatically" | "send_invoice">()
@@ -220,7 +224,24 @@ export const invoices = pgTable(
     periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
     autoAdvance: boolean("auto_advance").default(true).notNull(),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    invoicedAt: timestamp("invoiced_at", { withTimezone: true }),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    legalDocument: jsonb("legal_document").$type<{
+      invoice_type: "FACTURA_A" | "FACTURA_B";
+      document_number: number;
+      invoice_number: number;
+      invoice_date: string;
+      cae: string;
+      cae_due_date: string;
+      pdf_url: string;
+      receiver_name: string;
+      receiver_tax_id: string;
+      receiver_tax_condition:
+        | "RESPONSABLE_INSCRIPTO"
+        | "MONOTRIBUTO"
+        | "CONSUMIDOR_FINAL";
+      receiver_address: string;
+    } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -260,7 +281,7 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
 export const invoiceDeliveries = pgTable("invoice_deliveries", {
   id: text("id").primaryKey(),
   invoiceId: text("invoice_id").notNull(),
-  channel: text("channel").$type<"mock_email">().notNull(),
+  channel: text("channel").$type<"mock_email" | "email">().notNull(),
   status: text("status").$type<"pending" | "sent">().notNull(),
   recipient: text("recipient"),
   payload: jsonb("payload")

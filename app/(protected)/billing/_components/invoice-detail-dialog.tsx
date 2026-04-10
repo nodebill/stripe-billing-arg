@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatUtcDateRange } from "@/lib/utc-format";
+import { formatUtcDateRange, formatUtcDateTime } from "@/lib/utc-format";
 import type { Invoice, InvoiceDetail } from "@/modules/invoices/types";
 
 function formatBillingReason(reason: InvoiceDetail["line_items"][number]["billing_reason"]) {
@@ -103,12 +103,23 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
 
         {detail ? (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
                 <p className="font-medium">Invoice period</p>
                 <p className="mt-1 text-muted-foreground">
                   {formatUtcDateRange(detail.period_start, detail.period_end)}
                 </p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
+                <p className="font-medium">Workflow</p>
+                <p className="mt-1 text-muted-foreground">
+                  {detail.status} • {detail.payment_status}
+                </p>
+                {detail.invoiced_at ? (
+                  <p className="mt-1 text-muted-foreground">
+                    Invoiced at {formatUtcDateTime(detail.invoiced_at)}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-1 rounded-lg border bg-muted/30 px-3 py-3 text-sm">
                 <div className="flex justify-between text-muted-foreground">
@@ -125,6 +136,34 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
                 </div>
               </div>
             </div>
+
+            {detail.legal_document ? (
+              <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium">Legal document</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {detail.legal_document.invoice_type} {detail.legal_document.invoice_number} • CAE{" "}
+                      {detail.legal_document.cae}
+                    </p>
+                  </div>
+                  <a
+                    href={detail.legal_document.pdf_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm underline underline-offset-4"
+                  >
+                    Open PDF
+                  </a>
+                </div>
+                <p className="mt-2 text-muted-foreground">
+                  {detail.legal_document.receiver_name} • {detail.legal_document.receiver_tax_condition}
+                </p>
+                <p className="text-muted-foreground">
+                  {detail.legal_document.receiver_tax_id} • {detail.legal_document.receiver_address}
+                </p>
+              </div>
+            ) : null}
 
             <div className="min-w-0 overflow-x-auto rounded-lg border">
               <Table>

@@ -56,6 +56,58 @@ function formatRenewalModeLabel(
     : "Automatic";
 }
 
+function formatInvoiceWorkflowStatus(status: Invoice["status"]) {
+  if (status === "invoiced") {
+    return "Invoiced";
+  }
+
+  if (status === "sent") {
+    return "Sent";
+  }
+
+  return "Draft";
+}
+
+function formatInvoicePaymentStatus(status: Invoice["payment_status"]) {
+  if (status === "paid") {
+    return "Paid";
+  }
+
+  if (status === "past_due") {
+    return "Past due";
+  }
+
+  return "Pending";
+}
+
+function formatInvoiceTiming(invoice: Invoice) {
+  if (invoice.paid_at) {
+    return `Paid ${formatUtcDateTime(invoice.paid_at)}`;
+  }
+
+  if (invoice.due_date) {
+    return `Due ${formatUtcDateTime(invoice.due_date)}`;
+  }
+
+  if (invoice.invoiced_at) {
+    return `Invoiced ${formatUtcDateTime(invoice.invoiced_at)}`;
+  }
+
+  return `Created ${formatUtcDateTime(invoice.created)}`;
+}
+
+function formatInvoiceDelivery(invoice: Invoice) {
+  if (!invoice.latest_delivery) {
+    return "--";
+  }
+
+  const channel =
+    invoice.latest_delivery.channel === "email" ? "Email sent" : "Mock email sent";
+  return invoice.latest_delivery.recipient
+    ? `${channel} to ${invoice.latest_delivery.recipient}`
+    : channel;
+}
+
 export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -504,14 +556,15 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
           <div className="border-b px-4 py-3">
             <h2 className="font-medium">Invoices</h2>
             <p className="text-sm text-muted-foreground">
-              Review renewal invoices and mocked delivery history.
+              Review invoice workflow, payment state, and delivery history.
             </p>
           </div>
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Invoice</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Workflow</TableHead>
+                <TableHead>Payment</TableHead>
                 <TableHead>Collection</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Timing (UTC)</TableHead>
@@ -534,19 +587,18 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   </TableCell>
                   <TableCell>
                     <Badge
+                      variant={invoice.status === "draft" ? "secondary" : "outline"}
+                    >
+                      {formatInvoiceWorkflowStatus(invoice.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
                       variant={
-                        invoice.status === "paid" || invoice.status === "open"
-                          ? "outline"
-                          : "secondary"
+                        invoice.payment_status === "paid" ? "outline" : "secondary"
                       }
                     >
-                      {invoice.status === "past_due"
-                        ? "Past due"
-                        : invoice.status === "open"
-                          ? "Open"
-                          : invoice.status === "paid"
-                            ? "Paid"
-                            : "Draft"}
+                      {formatInvoicePaymentStatus(invoice.payment_status)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -556,22 +608,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     {formatPriceAmount(String(invoice.amount_due), invoice.currency)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {invoice.paid_at
-                      ? `Paid ${formatUtcDateTime(invoice.paid_at)}`
-                      : invoice.due_date
-                        ? `Due ${formatUtcDateTime(invoice.due_date)}`
-                        : invoice.finalized_at
-                          ? `Finalized ${formatUtcDateTime(invoice.finalized_at)}`
-                          : `Created ${formatUtcDateTime(invoice.created)}`}
+                    {formatInvoiceTiming(invoice)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {invoice.latest_delivery
-                      ? `${invoice.latest_delivery.status === "sent" ? "Mock email sent" : "Pending send"}${
-                          invoice.latest_delivery.recipient
-                            ? ` to ${invoice.latest_delivery.recipient}`
-                            : ""
-                        }`
-                      : "--"}
+                    {formatInvoiceDelivery(invoice)}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end">
