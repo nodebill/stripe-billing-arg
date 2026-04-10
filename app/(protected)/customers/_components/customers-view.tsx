@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Search, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -216,14 +217,12 @@ export function CustomersView() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">
           Customers{totalCount !== null && (
-            <span className="ml-2 text-base font-normal text-muted-foreground">
-              ({totalCount})
-            </span>
+            <Badge className="ml-2">{totalCount}</Badge>
           )}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-base text-[#615d59]">
           Manage the customers who purchase your products and services.
         </p>
       </div>
@@ -260,7 +259,7 @@ export function CustomersView() {
           </div>
         </div>
       ) : !isSearchMode && error ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="text-center">
             <p className="font-medium">Could not load customers</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -270,7 +269,7 @@ export function CustomersView() {
           </Button>
         </div>
       ) : !isSearchMode && customers.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Users className="size-6 text-muted-foreground" />
           </div>

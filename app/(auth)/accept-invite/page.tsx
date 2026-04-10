@@ -6,6 +6,8 @@ import {
   getServerPrincipal,
   getValidInviteByToken,
 } from "@/infrastructure/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 async function acceptInviteAction(formData: FormData) {
   "use server";
@@ -57,8 +59,8 @@ export default async function AcceptInvitePage({
   if (!invite) {
     return (
       <div className="space-y-3">
-        <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Invite</p>
-        <h1 className="text-2xl font-semibold">Invitation unavailable</h1>
+        <p className="text-sm uppercase tracking-[0.2em] text-primary">Invite</p>
+        <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Invitation unavailable</h1>
         <p className="text-sm text-muted-foreground">
           This invite was revoked, already used, or expired.
         </p>
@@ -69,8 +71,8 @@ export default async function AcceptInvitePage({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Invite</p>
-        <h1 className="text-2xl font-semibold">Join Pentos</h1>
+        <p className="text-sm uppercase tracking-[0.2em] text-primary">Invite</p>
+        <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Join Pentos</h1>
         <p className="text-sm text-muted-foreground">
           You are accepting an invitation for <strong>{invite.email}</strong>.
         </p>
@@ -90,32 +92,27 @@ export default async function AcceptInvitePage({
           <label htmlFor="name" className="text-sm font-medium">
             Name
           </label>
-          <input
+          <Input
             id="name"
             name="name"
             required
-            className="w-full rounded-md border px-3 py-2"
           />
         </div>
         <div className="space-y-1">
           <label htmlFor="password" className="text-sm font-medium">
             Password
           </label>
-          <input
+          <Input
             id="password"
             name="password"
             type="password"
             required
             minLength={12}
-            className="w-full rounded-md border px-3 py-2"
           />
         </div>
-        <button
-          type="submit"
-          className="w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-        >
+        <Button type="submit" className="w-full">
           Accept invite
-        </button>
+        </Button>
       </form>
     </div>
   );

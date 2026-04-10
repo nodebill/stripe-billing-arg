@@ -265,7 +265,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
           <ArrowLeft className="size-4" />
           Back to customers
         </Link>
-        <div className="rounded-xl border border-dashed px-6 py-16 text-center">
+        <div className="rounded-xl border px-6 py-16 text-center">
           <p className="font-medium">Customer not found</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {error ?? "This customer could not be loaded."}
@@ -315,12 +315,12 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight">
+                <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">
                   {customer.name || customer.email || customer.id}
                 </h1>
                 <Badge variant="outline">Customer</Badge>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-[#615d59]">
                 {customer.description || "No customer description yet."}
               </p>
             </div>
@@ -383,7 +383,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       ) : null}
 
       {subscriptions.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Repeat className="size-6 text-muted-foreground" />
           </div>
@@ -540,7 +540,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       )}
 
       {invoices.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <ReceiptText className="size-6 text-muted-foreground" />
           </div>
@@ -626,7 +626,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       )}
 
       {paymentMethods.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <WalletCards className="size-6 text-muted-foreground" />
           </div>
@@ -686,7 +686,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         </div>
       )}
 
-      <div className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+      <div className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">
         Detached payment methods stay in history and cannot be re-attached. If a
         detached payment method is the default for an active subscription, that
         subscription is canceled immediately.

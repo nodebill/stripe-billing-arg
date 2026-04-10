@@ -84,14 +84,12 @@ export function ProductsView() {
     <div className="flex flex-col gap-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">
           Products{totalCount !== null && (
-            <span className="ml-2 text-base font-normal text-muted-foreground">
-              ({totalCount})
-            </span>
+            <Badge className="ml-2">{totalCount}</Badge>
           )}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-base text-[#615d59]">
           Manage the products and services you offer to your customers.
         </p>
       </div>
@@ -119,7 +117,7 @@ export function ProductsView() {
           </div>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="text-center">
             <p className="font-medium">Could not load products</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -129,7 +127,7 @@ export function ProductsView() {
           </Button>
         </div>
       ) : products.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Package className="size-6 text-muted-foreground" />
           </div>
@@ -176,7 +174,7 @@ export function ProductsView() {
                     >
                       <span
                         className={`mr-1 inline-block size-1.5 rounded-full ${
-                          product.active ? "bg-emerald-500" : "bg-muted-foreground/50"
+                          product.active ? "bg-[#2a9d99]" : "bg-muted-foreground/50"
                         }`}
                       />
                       {product.active ? "Active" : "Inactive"}

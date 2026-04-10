@@ -90,7 +90,7 @@ export function InvoiceDetailDialog({ invoice }: { invoice: Invoice }) {
         </DialogHeader>
 
         {loading ? (
-          <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          <div className="rounded-lg border px-4 py-6 text-sm text-muted-foreground">
             Loading invoice details...
           </div>
         ) : null}

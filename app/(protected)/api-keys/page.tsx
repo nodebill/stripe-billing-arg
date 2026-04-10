@@ -7,6 +7,8 @@ import {
   listMachineApiKeys,
   requireServerAdmin,
 } from "@/infrastructure/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatUtcDateTime } from "@/lib/utc-format";
 
 async function createApiKeyAction(formData: FormData) {
@@ -59,25 +61,22 @@ export default async function ApiKeysPage({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-10">
       <section className="space-y-4">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Admin</p>
-          <h1 className="text-2xl font-semibold">API keys</h1>
+          <p className="text-sm uppercase tracking-[0.2em] text-primary">Admin</p>
+          <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">API keys</h1>
           <p className="text-sm text-muted-foreground">
             Machine keys authenticate server-to-server requests with `x-api-key`.
           </p>
         </div>
         <form action={createApiKeyAction} className="flex max-w-xl gap-3 rounded-xl border p-4">
-          <input
+          <Input
             name="name"
             required
             placeholder="Billing processor"
-            className="flex-1 rounded-md border px-3 py-2"
+            className="flex-1"
           />
-          <button
-            type="submit"
-            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-          >
+          <Button type="submit">
             Create key
-          </button>
+          </Button>
         </form>
         {createdKey ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -103,9 +102,9 @@ export default async function ApiKeysPage({
                 </div>
                 <form action={deleteApiKeyAction}>
                   <input type="hidden" name="keyId" value={key.id} />
-                  <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                  <Button type="submit" variant="outline" size="sm">
                     Delete
-                  </button>
+                  </Button>
                 </form>
               </div>
             ))

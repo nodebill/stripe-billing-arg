@@ -250,7 +250,7 @@ export function CreateSubscriptionDialog({
               </select>
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            <div className="rounded-lg border px-3 py-2 text-sm text-muted-foreground">
               Renewal runs will mock-send invoices without using a stored payment
               method.
             </div>
