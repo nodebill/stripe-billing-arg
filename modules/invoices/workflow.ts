@@ -36,6 +36,9 @@ type AfipConfig = {
   pointOfSale: number;
 };
 
+/** AFIP web service id passed to auth; sessions are not interchangeable across services. */
+type AfipWsid = "ws_sr_constancia_inscripcion" | "wsfe";
+
 type PdfConfig = {
   endpoint: string;
   bearerToken: string;
@@ -260,6 +263,10 @@ function getInvoiceDate(periodEnd: Date) {
   return invoiceDate;
 }
 
+function toMajorCurrencyUnit(amount: number) {
+  return amount / 100;
+}
+
 function buildPdfFileName(documentNumber: number, baseFilePath?: string) {
   const now = new Date();
   const month = now.getUTCMonth();
@@ -336,8 +343,12 @@ async function getSubscriptionRow(subscriptionId: string) {
   return rows[0] ?? null;
 }
 
-async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
+async function initializeAfipSession(
+  config: AfipConfig,
+  wsid: AfipWsid,
+): Promise<AfipSession> {
   const cacheKey = [
+    wsid,
     config.environment,
     config.baseUrl,
     config.representedTaxId,
@@ -348,6 +359,7 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
 
   if (cached?.token && cached.sign) {
     logWorkflow("info", "Using cached AFIP session", {
+      wsid,
       environment: config.environment,
       representedTaxId: config.representedTaxId,
     });
@@ -355,6 +367,7 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
   }
 
   logWorkflow("info", "Creating AFIP session", {
+    wsid,
     environment: config.environment,
     representedTaxId: config.representedTaxId,
   });
@@ -368,7 +381,7 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
     body: JSON.stringify({
       environment: config.environment,
       tax_id: config.representedTaxId,
-      wsid: "ws_sr_constancia_inscripcion",
+      wsid,
       cert: config.cert,
       key: config.key,
     }),
@@ -377,6 +390,7 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
   const data = (await response.json()) as AfipSession & { error?: string };
   if (!response.ok || !data.token || !data.sign) {
     logWorkflow("error", "AFIP authentication failed", {
+      wsid,
       environment: config.environment,
       representedTaxId: config.representedTaxId,
       status: response.status,
@@ -389,6 +403,7 @@ async function initializeAfipSession(config: AfipConfig): Promise<AfipSession> {
 
   afipSessionCache.set(cacheKey, data);
   logWorkflow("info", "AFIP session created", {
+    wsid,
     environment: config.environment,
     representedTaxId: config.representedTaxId,
   });
@@ -503,7 +518,10 @@ async function loadCustomerFiscalProfile(
   }
 
   const config = getAfipConfig();
-  const session = await initializeAfipSession(config);
+  const session = await initializeAfipSession(
+    config,
+    "ws_sr_constancia_inscripcion",
+  );
   const data = await requestAfip(config, {
     method: "getPersona_v2",
     wsid: "ws_sr_constancia_inscripcion",
@@ -516,14 +534,6 @@ async function loadCustomerFiscalProfile(
   });
 
   const persona = extractPersonaResponse(data);
-  const businessName = persona?.datosGenerales?.razonSocial?.trim();
-  const address = formatFiscalAddress(persona?.domicilioFiscal);
-
-  if (!businessName || !address) {
-    throw new InvoiceWorkflowError(
-      `AFIP did not return enough fiscal data for customer '${customer.id}'`,
-    );
-  }
 
   const taxCondition = resolveTaxCondition(persona, taxId);
   logWorkflow("info", "Customer fiscal profile resolved", {
@@ -533,8 +543,8 @@ async function loadCustomerFiscalProfile(
       taxCondition === "CONSUMIDOR_FINAL" ? "FACTURA_B" : "FACTURA_A",
   });
   return {
-    businessName,
-    address,
+    businessName: customer.name!,
+    address: `${customer.address?.line1}, ${customer.address?.city}, ${customer.address?.state}, ${customer.address?.postal_code}, ${customer.address?.country}`,
     taxId,
     taxCondition,
     invoiceType:
@@ -658,11 +668,11 @@ function buildAfipIssueRequest(
           FchServDesde: formatDateForAfip(invoice.periodStart),
           FchServHasta: formatDateForAfip(invoice.periodEnd),
           FchVtoPago: formatDateForAfip(runAt),
-          ImpTotal: invoice.amountDue,
+          ImpTotal: toMajorCurrencyUnit(invoice.amountDue),
           ImpTotConc: 0,
-          ImpNeto: invoice.subtotal,
+          ImpNeto: toMajorCurrencyUnit(invoice.subtotal),
           ImpOpEx: 0,
-          ImpIVA: invoice.taxAmount,
+          ImpIVA: toMajorCurrencyUnit(invoice.taxAmount),
           ImpTrib: 0,
           MonId: "PES",
           MonCotiz: 1,
@@ -672,8 +682,8 @@ function buildAfipIssueRequest(
             AlicIva: [
               {
                 Id: 5,
-                BaseImp: invoice.subtotal,
-                Importe: invoice.taxAmount,
+                BaseImp: toMajorCurrencyUnit(invoice.subtotal),
+                Importe: toMajorCurrencyUnit(invoice.taxAmount),
               },
             ],
           },
@@ -694,11 +704,7 @@ async function generateAfipInvoice(
     runAt: runAt.toISOString(),
   });
   const config = getAfipConfig();
-  const session = await initializeAfipSession({
-    ...config,
-    pointOfSale: config.pointOfSale,
-    baseUrl: config.baseUrl,
-  });
+  const session = await initializeAfipSession(config, "wsfe");
   const voucherNumber = await getVoucherNumber(
     config,
     session,
@@ -765,9 +771,9 @@ function buildPdfRequest(
     toDate: formatDateForAfip(invoice.periodEnd),
     dueDate: afipInvoice.caeDueDate,
     CAE: afipInvoice.cae,
-    netPaid: invoice.subtotal,
-    totalPaid: invoice.amountDue,
-    taxPaid: invoice.taxAmount,
+    netPaid: toMajorCurrencyUnit(invoice.subtotal),
+    totalPaid: toMajorCurrencyUnit(invoice.amountDue),
+    taxPaid: toMajorCurrencyUnit(invoice.taxAmount),
     s3FileName: buildPdfFileName(
       Number(fiscalProfile.taxId),
       config.baseFilePath,
@@ -847,7 +853,7 @@ async function buildIssuePreviewContext(
 
   const fiscalProfile = await loadCustomerFiscalProfile(customer);
   const afipConfig = getAfipConfig();
-  const session = await initializeAfipSession(afipConfig);
+  const session = await initializeAfipSession(afipConfig, "wsfe");
   const voucherNumber = await getVoucherNumber(
     afipConfig,
     session,
@@ -945,10 +951,10 @@ async function sendInvoiceEmail(
       subject: `${config.subjectPrefix} ${month}/${year}`,
       html: [
         "<div>",
-        "<p>Hola,</p>",
-        "<p>Adjuntamos la factura emitida para este periodo.</p>",
+        "<p>Buenos días,</p>",
+        "<p>Gracias por elegir Talo para procesar los pagos por transferencia. Adjuntamos la factura emitida para este periodo.</p>",
         "<p>Saludos,</p>",
-        "<p>Pentos</p>",
+        "<p>El equipo de Talo</p>",
         "</div>",
       ].join(""),
       attachments: [
@@ -1001,6 +1007,53 @@ function appendPreviewedResult(
     status: "previewed",
     preview,
   });
+}
+
+function normalizePreviewPayloadAmounts(
+  payloads: InvoiceIssuePreview["payloads"],
+  invoice: InvoiceRow,
+): InvoiceIssuePreview["payloads"] {
+  const afipRequest = payloads.afip_request as {
+    FeCAEReq?: {
+      FeDetReq?: {
+        FECAEDetRequest?: {
+          ImpTotal?: number;
+          ImpNeto?: number;
+          ImpIVA?: number;
+          Iva?: { AlicIva?: Array<{ BaseImp?: number; Importe?: number }> };
+        };
+      };
+    };
+  };
+  const pdfRequest = payloads.pdf_request as {
+    totalPaid?: number;
+    netPaid?: number;
+    taxPaid?: number;
+  };
+
+  if (afipRequest.FeCAEReq?.FeDetReq?.FECAEDetRequest) {
+    afipRequest.FeCAEReq.FeDetReq.FECAEDetRequest.ImpTotal =
+      toMajorCurrencyUnit(invoice.amountDue);
+    afipRequest.FeCAEReq.FeDetReq.FECAEDetRequest.ImpNeto = toMajorCurrencyUnit(
+      invoice.subtotal,
+    );
+    afipRequest.FeCAEReq.FeDetReq.FECAEDetRequest.ImpIVA = toMajorCurrencyUnit(
+      invoice.taxAmount,
+    );
+
+    const alicIva =
+      afipRequest.FeCAEReq.FeDetReq.FECAEDetRequest.Iva?.AlicIva?.[0];
+    if (alicIva) {
+      alicIva.BaseImp = toMajorCurrencyUnit(invoice.subtotal);
+      alicIva.Importe = toMajorCurrencyUnit(invoice.taxAmount);
+    }
+  }
+
+  pdfRequest.totalPaid = toMajorCurrencyUnit(invoice.amountDue);
+  pdfRequest.netPaid = toMajorCurrencyUnit(invoice.subtotal);
+  pdfRequest.taxPaid = toMajorCurrencyUnit(invoice.taxAmount);
+
+  return payloads;
 }
 
 function appendFailedResult(
@@ -1195,10 +1248,13 @@ export async function previewIssueInvoices(
         expected_payment_status: preview.paymentStatus,
         due_date: toUnix(preview.dueDate),
         warnings: preview.warnings,
-        payloads: {
-          afip_request: preview.afipRequest,
-          pdf_request: preview.pdfRequest,
-        },
+        payloads: normalizePreviewPayloadAmounts(
+          {
+            afip_request: preview.afipRequest,
+            pdf_request: preview.pdfRequest,
+          },
+          row,
+        ),
       });
     } catch (error) {
       logWorkflow("error", "Invoice issue preview failed", {

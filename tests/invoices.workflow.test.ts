@@ -57,6 +57,7 @@ async function createArsDraftInvoiceFixture(options?: {
 }) {
   const customer = await createCustomer({
     email: `billing-${Date.now()}@example.com`,
+    name: "Acme SA",
     taxId: {
       type: "ar_cuit",
       value: options?.taxId ?? "20-12345678-9",
@@ -264,6 +265,8 @@ test("previewIssueInvoices shows the payloads without issuing and falls back jur
       taxId: "30-12345678-9",
       collectionMethod: "send_invoice",
     });
+    const originalInvoice = await getInvoice(fixture.invoiceId);
+    assert.ok(originalInvoice);
 
     const result = await previewIssueInvoices([fixture.invoiceId]);
     assert.equal(result.previewed_invoices, 1);
@@ -281,6 +284,66 @@ test("previewIssueInvoices shows the payloads without issuing and falls back jur
         }
       ).FeDetReq.FECAEDetRequest.CondicionIVAReceptorId,
       1
+    );
+    assert.equal(
+      (
+        preview.payloads.afip_request.FeCAEReq as {
+          FeDetReq: {
+            FECAEDetRequest: { ImpTotal: number; ImpNeto: number; ImpIVA: number };
+          };
+        }
+      ).FeDetReq.FECAEDetRequest.ImpTotal,
+      originalInvoice.amount_due / 100,
+    );
+    assert.equal(
+      (
+        preview.payloads.afip_request.FeCAEReq as {
+          FeDetReq: {
+            FECAEDetRequest: { ImpTotal: number; ImpNeto: number; ImpIVA: number };
+          };
+        }
+      ).FeDetReq.FECAEDetRequest.ImpNeto,
+      originalInvoice.subtotal / 100,
+    );
+    assert.equal(
+      (
+        preview.payloads.afip_request.FeCAEReq as {
+          FeDetReq: {
+            FECAEDetRequest: { ImpTotal: number; ImpNeto: number; ImpIVA: number };
+          };
+        }
+      ).FeDetReq.FECAEDetRequest.ImpIVA,
+      originalInvoice.tax_amount / 100,
+    );
+    assert.equal(
+      (
+        preview.payloads.pdf_request as {
+          totalPaid: number;
+          netPaid: number;
+          taxPaid: number;
+        }
+      ).totalPaid,
+      originalInvoice.amount_due / 100,
+    );
+    assert.equal(
+      (
+        preview.payloads.pdf_request as {
+          totalPaid: number;
+          netPaid: number;
+          taxPaid: number;
+        }
+      ).netPaid,
+      originalInvoice.subtotal / 100,
+    );
+    assert.equal(
+      (
+        preview.payloads.pdf_request as {
+          totalPaid: number;
+          netPaid: number;
+          taxPaid: number;
+        }
+      ).taxPaid,
+      originalInvoice.tax_amount / 100,
     );
 
     const invoice = await getInvoice(fixture.invoiceId);
