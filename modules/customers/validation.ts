@@ -51,12 +51,11 @@ export const searchCustomersSchema = z
     const match = metadataQueryPattern.exec(query);
 
     if (!match) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "Only metadata['<key>']:'<value>' queries are supported",
-      });
-      return z.NEVER;
+      return {
+        ...rest,
+        query_mode: "text" as const,
+        searchTerm: query.trim(),
+      };
     }
 
     const metadataKey = match[1];
@@ -75,6 +74,7 @@ export const searchCustomersSchema = z
 
     return {
       ...rest,
+      query_mode: "metadata" as const,
       metadataKey,
       metadataValue,
     };

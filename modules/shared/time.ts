@@ -4,6 +4,16 @@ export function toUnix(date: Date | null): number | null {
   return date ? Math.floor(date.getTime() / 1000) : null;
 }
 
+export function fromUtcDateString(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+export function toUtcDateExclusiveEnd(value: string) {
+  const date = fromUtcDateString(value);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date;
+}
+
 function daysInUtcMonth(year: number, monthIndex: number) {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
