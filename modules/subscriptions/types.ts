@@ -109,6 +109,9 @@ export type CloseSubscriptionCycleResult = {
 export type BulkCloseSubscriptionCyclesInput = {
   customer?: string;
   subscription?: string;
+  status?: SubscriptionStatus;
+  date_from?: string;
+  date_to?: string;
 };
 
 export type BulkCloseSubscriptionCyclesResultItem = {
@@ -132,6 +135,8 @@ export type ListSubscriptionsParams = {
   customer?: string;
   subscription?: string;
   status?: SubscriptionStatus;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
   starting_after?: string;
   ending_before?: string;

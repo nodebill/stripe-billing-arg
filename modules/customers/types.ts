@@ -98,12 +98,20 @@ export type ListCustomersParams = {
   ending_before?: string;
 };
 
-export type SearchCustomersParams = {
-  metadataKey: string;
-  metadataValue: string;
-  limit?: number;
-  page?: string;
-};
+export type SearchCustomersParams =
+  | {
+      query_mode: "metadata";
+      metadataKey: string;
+      metadataValue: string;
+      limit?: number;
+      page?: string;
+    }
+  | {
+      query_mode: "text";
+      searchTerm: string;
+      limit?: number;
+      page?: string;
+    };
 
 export type TaxId = {
   id: string;

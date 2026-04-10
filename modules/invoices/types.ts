@@ -61,6 +61,9 @@ export type InvoiceDetail = Invoice & {
 
 export type ListInvoicesParams = {
   customer?: string;
+  status?: InvoiceStatus;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
   starting_after?: string;
   ending_before?: string;

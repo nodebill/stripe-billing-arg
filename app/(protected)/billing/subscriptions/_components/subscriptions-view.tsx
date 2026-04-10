@@ -24,12 +24,23 @@ import type { Product } from "@/modules/products/types";
 import type {
   BulkCloseSubscriptionCyclesInput,
   BulkCloseSubscriptionCyclesResult,
+  ListSubscriptionsParams,
   StripeSubscriptionList,
   Subscription,
 } from "@/modules/subscriptions/types";
 import { RefreshSubscriptionsDialog } from "./refresh-subscriptions-dialog";
 
 const PAGE_LIMIT = 200;
+const SELECT_CLASS_NAME =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
+const STATUS_OPTIONS: Array<{
+  value: Subscription["status"];
+  label: string;
+}> = [
+  { value: "active", label: "Active" },
+  { value: "past_due", label: "Past due" },
+  { value: "canceled", label: "Canceled" },
+];
 
 function formatCollectionMethodLabel(
   collectionMethod: Subscription["collection_method"]
@@ -39,12 +50,14 @@ function formatCollectionMethodLabel(
     : "Send invoice";
 }
 
-function formatRenewalModeLabel(
-  renewalMode: Subscription["renewal_mode"]
-) {
+function formatRenewalModeLabel(renewalMode: Subscription["renewal_mode"]) {
   return renewalMode === "manual_until_current"
     ? "Manual catch-up"
     : "Automatic";
+}
+
+function formatSubscriptionStatus(status: Subscription["status"]) {
+  return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
 }
 
 function toFilterValue(value: string) {
@@ -61,7 +74,12 @@ export function SubscriptionsView() {
   const [error, setError] = useState<string | null>(null);
   const [customerFilter, setCustomerFilter] = useState("");
   const [subscriptionFilter, setSubscriptionFilter] = useState("");
-  const [appliedFilters, setAppliedFilters] = useState<BulkCloseSubscriptionCyclesInput>({});
+  const [statusFilter, setStatusFilter] = useState<Subscription["status"]>("active");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
+  const [appliedFilters, setAppliedFilters] = useState<ListSubscriptionsParams>({
+    status: "active",
+  });
   const [refreshResult, setRefreshResult] =
     useState<BulkCloseSubscriptionCyclesResult | null>(null);
 
@@ -141,16 +159,13 @@ export function SubscriptionsView() {
   );
 
   const loadSubscriptions = useCallback(
-    async (
-      filters: BulkCloseSubscriptionCyclesInput,
-      startingAfter?: string
-    ) => {
+    async (filters: ListSubscriptionsParams, startingAfter?: string) => {
       try {
         setError(null);
 
         const params = new URLSearchParams({
-          status: "active",
           limit: String(PAGE_LIMIT),
+          status: filters.status ?? "active",
         });
 
         if (filters.customer) {
@@ -159,6 +174,14 @@ export function SubscriptionsView() {
 
         if (filters.subscription) {
           params.set("subscription", filters.subscription);
+        }
+
+        if (filters.date_from) {
+          params.set("date_from", filters.date_from);
+        }
+
+        if (filters.date_to) {
+          params.set("date_to", filters.date_to);
         }
 
         if (startingAfter) {
@@ -202,6 +225,22 @@ export function SubscriptionsView() {
     void loadSubscriptions(appliedFilters);
   }, [appliedFilters, loadSubscriptions]);
 
+  const refreshFilters: BulkCloseSubscriptionCyclesInput = {
+    customer: appliedFilters.customer,
+    subscription: appliedFilters.subscription,
+    status: appliedFilters.status,
+    date_from: appliedFilters.date_from,
+    date_to: appliedFilters.date_to,
+  };
+  const hasNarrowingFilters = Boolean(
+    refreshFilters.customer ||
+      refreshFilters.subscription ||
+      refreshFilters.date_from ||
+      refreshFilters.date_to
+  );
+  const canRefresh =
+    (refreshFilters.status ?? "active") === "active" && hasNarrowingFilters;
+
   function formatPriceLabel(subscription: Subscription) {
     const priceId = subscription.items[0]?.price;
     if (!priceId) {
@@ -226,15 +265,21 @@ export function SubscriptionsView() {
     setAppliedFilters({
       customer: toFilterValue(customerFilter),
       subscription: toFilterValue(subscriptionFilter),
+      status: statusFilter,
+      date_from: toFilterValue(dateFromFilter),
+      date_to: toFilterValue(dateToFilter),
     });
   }
 
   function clearFilters() {
     setCustomerFilter("");
     setSubscriptionFilter("");
+    setStatusFilter("active");
+    setDateFromFilter("");
+    setDateToFilter("");
     setLoading(true);
     setRefreshResult(null);
-    setAppliedFilters({});
+    setAppliedFilters({ status: "active" });
   }
 
   async function handleRefreshed(result: BulkCloseSubscriptionCyclesResult) {
@@ -247,22 +292,26 @@ export function SubscriptionsView() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Active subscriptions
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Subscriptions</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Review active subscriptions across customers and refresh filtered
-            overdue cycles in one pass.
+            Review subscriptions across customers, filter by status and UTC
+            period-end date, and refresh filtered overdue active cycles.
           </p>
         </div>
         <RefreshSubscriptionsDialog
-          filters={appliedFilters}
+          filters={refreshFilters}
           onRefreshed={(result) => void handleRefreshed(result)}
+          disabled={!canRefresh}
+          disabledReason={
+            (refreshFilters.status ?? "active") !== "active"
+              ? "Refresh only runs for active subscriptions."
+              : "Add a customer, subscription, or date filter before refreshing."
+          }
         />
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border p-4">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_160px_160px_auto]">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -281,7 +330,41 @@ export function SubscriptionsView() {
               className="pl-8"
             />
           </div>
-          <div className="flex gap-2">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as Subscription["status"])
+              }
+              className={SELECT_CLASS_NAME}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium">From (UTC)</span>
+            <Input
+              type="date"
+              value={dateFromFilter}
+              max={dateToFilter || undefined}
+              onChange={(event) => setDateFromFilter(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium">To (UTC)</span>
+            <Input
+              type="date"
+              value={dateToFilter}
+              min={dateFromFilter || undefined}
+              onChange={(event) => setDateToFilter(event.target.value)}
+            />
+          </label>
+          <div className="flex gap-2 self-end">
             <Button variant="outline" onClick={clearFilters}>
               <X />
               Clear
@@ -290,9 +373,9 @@ export function SubscriptionsView() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          First load brings up to {PAGE_LIMIT} active subscriptions. Apply exact
-          ID filters to narrow the batch, or run refresh across all active
-          subscriptions.
+          First load brings up to {PAGE_LIMIT} subscriptions for the selected
+          status. `Refresh` only runs for active subscriptions narrowed by
+          customer, subscription, or UTC date range.
         </p>
       </div>
 
@@ -356,9 +439,9 @@ export function SubscriptionsView() {
             <Repeat className="size-6 text-muted-foreground" />
           </div>
           <div className="text-center">
-            <p className="font-medium">No active subscriptions found</p>
+            <p className="font-medium">No subscriptions found</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Adjust the exact filters or clear them to inspect the global list.
+              Adjust the filters or clear them to inspect another segment.
             </p>
           </div>
         </div>
@@ -368,6 +451,7 @@ export function SubscriptionsView() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Customer</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Price</TableHead>
                 <TableHead>Renewal mode</TableHead>
                 <TableHead>Collection</TableHead>
@@ -386,6 +470,15 @@ export function SubscriptionsView() {
                     >
                       {subscription.customer}
                     </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        subscription.status === "active" ? "outline" : "secondary"
+                      }
+                    >
+                      {formatSubscriptionStatus(subscription.status)}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatPriceLabel(subscription)}

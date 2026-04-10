@@ -4,6 +4,7 @@ import {
   paymentMethodIdSchema,
   priceIdSchema,
   subscriptionIdSchema,
+  utcDateStringSchema,
 } from "@/modules/shared/validation";
 
 const unixTimestampSchema = z.coerce
@@ -119,14 +120,26 @@ export const updateSubscriptionSchema = z
   })
   .strict();
 
-export const listSubscriptionsSchema = z.object({
-  customer: customerIdSchema.optional(),
-  subscription: subscriptionIdSchema.optional(),
-  status: z.enum(["active", "past_due", "canceled"]).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(10),
-  starting_after: subscriptionIdSchema.optional(),
-  ending_before: subscriptionIdSchema.optional(),
-});
+export const listSubscriptionsSchema = z
+  .object({
+    customer: customerIdSchema.optional(),
+    subscription: subscriptionIdSchema.optional(),
+    status: z.enum(["active", "past_due", "canceled"]).optional(),
+    date_from: utcDateStringSchema.optional(),
+    date_to: utcDateStringSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(10),
+    starting_after: subscriptionIdSchema.optional(),
+    ending_before: subscriptionIdSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.date_from && value.date_to && value.date_from > value.date_to) {
+      ctx.addIssue({
+        code: "custom",
+        message: "date_to must be on or after date_from",
+        path: ["date_to"],
+      });
+    }
+  });
 
 export const closeSubscriptionCycleSchema = z.object({}).strict();
 
@@ -134,5 +147,26 @@ export const bulkCloseSubscriptionCyclesSchema = z
   .object({
     customer: customerIdSchema.optional(),
     subscription: subscriptionIdSchema.optional(),
+    status: z.enum(["active"]).optional(),
+    date_from: utcDateStringSchema.optional(),
+    date_to: utcDateStringSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.customer && !value.subscription && !value.date_from && !value.date_to) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "At least one filter is required: customer, subscription, date_from, or date_to",
+        path: ["customer"],
+      });
+    }
+
+    if (value.date_from && value.date_to && value.date_from > value.date_to) {
+      ctx.addIssue({
+        code: "custom",
+        message: "date_to must be on or after date_from",
+        path: ["date_to"],
+      });
+    }
   })
   .strict();

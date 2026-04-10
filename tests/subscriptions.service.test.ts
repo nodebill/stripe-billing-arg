@@ -280,6 +280,16 @@ async function expireSubscription(
   return { pastStart, pastEnd };
 }
 
+async function setInvoiceTimestamp(invoiceId: string, unix: number) {
+  await getDb()
+    .update(invoices)
+    .set({
+      createdAt: new Date(unix * 1000),
+      updatedAt: new Date(unix * 1000),
+    })
+    .where(eq(invoices.id, invoiceId));
+}
+
 function getStartOfCurrentUtcMonth() {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0));
@@ -647,6 +657,35 @@ test("filters subscriptions by exact subscription id", async () => {
   assert.equal(list.data[0]?.id, firstSubscription.id);
 });
 
+test("filters subscriptions by status and current_period_end UTC date range", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const firstSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  const secondSubscription = await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  await expireSubscription(firstSubscription.id, 5, new Date("2026-04-10T00:00:00.000Z"));
+  await expireSubscription(secondSubscription.id, 35, new Date("2026-04-10T00:00:00.000Z"));
+
+  const list = await listSubscriptions({
+    status: "active",
+    date_from: "2026-04-01",
+    date_to: "2026-04-30",
+    limit: 200,
+  });
+
+  assert.deepEqual(list.data.map((subscription) => subscription.id), [firstSubscription.id]);
+});
+
 test("globally lists invoices when customer is omitted", async () => {
   await resetDb();
   const first = await createRecurringFixture();
@@ -681,6 +720,45 @@ test("globally lists invoices when customer is omitted", async () => {
     new Set(list.data.map((invoice) => invoice.customer)),
     new Set([first.customer.id, second.customer.id])
   );
+});
+
+test("filters invoices by status and created_at UTC date range", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    items: [{ price: fixture.price.id }],
+    collection_method: "send_invoice",
+  });
+
+  const runAt = new Date("2026-04-15T13:00:00.000Z");
+  await expireSubscription(subscription.id, 2, runAt);
+  await processDueSubscriptions({
+    runAt,
+    trigger: "test_invoice_filters",
+  });
+
+  const invoiceRows = await getDb().select().from(invoices);
+  assert.equal(invoiceRows.length, 1);
+  await setInvoiceTimestamp(invoiceRows[0]!.id, Math.floor(runAt.getTime() / 1000));
+
+  const matching = await listInvoices({
+    status: "open",
+    date_from: "2026-04-15",
+    date_to: "2026-04-15",
+    limit: 200,
+  });
+  assert.equal(matching.data.length, 1);
+  assert.equal(matching.data[0]?.id, invoiceRows[0]?.id);
+
+  const nonMatching = await listInvoices({
+    status: "open",
+    date_from: "2026-04-16",
+    date_to: "2026-04-16",
+    limit: 200,
+  });
+  assert.equal(nonMatching.data.length, 0);
 });
 
 test("bulk close processes overdue subscriptions and skips subscriptions that are not due", async () => {
@@ -726,6 +804,44 @@ test("bulk close processes overdue subscriptions and skips subscriptions that ar
   );
   assert.equal(skipped?.status, "skipped");
   assert.match(skipped?.message ?? "", /not have a cycle ready to close yet/i);
+});
+
+test("bulk close respects active date filters", async () => {
+  await resetDb();
+  const first = await createRecurringFixture();
+  const second = await createRecurringFixture();
+
+  const aprilSubscription = await createSubscription({
+    customer: first.customer.id,
+    default_payment_method: first.paymentMethod.id,
+    items: [{ price: first.price.id }],
+  });
+  const marchSubscription = await createSubscription({
+    customer: second.customer.id,
+    default_payment_method: second.paymentMethod.id,
+    items: [{ price: second.price.id }],
+  });
+
+  await expireSubscription(
+    aprilSubscription.id,
+    5,
+    new Date("2026-04-10T00:00:00.000Z")
+  );
+  await expireSubscription(
+    marchSubscription.id,
+    25,
+    new Date("2026-04-10T00:00:00.000Z")
+  );
+
+  const result = await bulkCloseSubscriptionCycles({
+    status: "active",
+    date_from: "2026-04-01",
+    date_to: "2026-04-30",
+  });
+
+  assert.equal(result.matched_subscriptions, 1);
+  assert.equal(result.processed_subscriptions, 1);
+  assert.equal(result.results[0]?.subscription_id, aprilSubscription.id);
 });
 
 test("subscription reads do not mutate overdue billing state", async () => {
