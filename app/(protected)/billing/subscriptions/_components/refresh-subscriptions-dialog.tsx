@@ -20,17 +20,22 @@ import type {
 type RefreshSubscriptionsDialogProps = {
   filters: BulkCloseSubscriptionCyclesInput;
   onRefreshed: (result: BulkCloseSubscriptionCyclesResult) => void;
+  disabled?: boolean;
+  disabledReason?: string;
 };
 
 export function RefreshSubscriptionsDialog({
   filters,
   onRefreshed,
+  disabled = false,
+  disabledReason,
 }: RefreshSubscriptionsDialogProps) {
+  const hasFilters = Boolean(
+    filters.customer || filters.subscription || filters.date_from || filters.date_to
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const hasFilters = Boolean(filters.customer || filters.subscription);
 
   async function handleSubmit() {
     setLoading(true);
@@ -58,7 +63,7 @@ export function RefreshSubscriptionsDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (loading) {
+        if (loading || disabled) {
           return;
         }
 
@@ -69,7 +74,14 @@ export function RefreshSubscriptionsDialog({
       }}
     >
       <DialogTrigger
-        render={<Button variant="outline" size="sm" />}
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
+          />
+        }
       >
         <RefreshCw />
         Refresh
@@ -86,12 +98,21 @@ export function RefreshSubscriptionsDialog({
 
         <div className="rounded-lg border bg-muted/30 px-3 py-3 text-sm">
           <p>
+            <span className="font-medium">Status:</span> {filters.status ?? "active"}
+          </p>
+          <p className="mt-1">
             <span className="font-medium">Customer:</span>{" "}
             {filters.customer ?? "Any"}
           </p>
           <p className="mt-1">
             <span className="font-medium">Subscription:</span>{" "}
             {filters.subscription ?? "Any"}
+          </p>
+          <p className="mt-1">
+            <span className="font-medium">From:</span> {filters.date_from ?? "Any"}
+          </p>
+          <p className="mt-1">
+            <span className="font-medium">To:</span> {filters.date_to ?? "Any"}
           </p>
         </div>
 

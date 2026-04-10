@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
@@ -258,9 +258,12 @@ export async function searchCustomers(
   const db = getDb();
 
   const limit = params.limit ?? 10;
-  const conditions = [
-    sql<boolean>`${customers.metadata} ->> ${params.metadataKey} = ${params.metadataValue}`,
-  ];
+  const conditions =
+    params.query_mode === "metadata"
+      ? [
+          sql<boolean>`${customers.metadata} ->> ${params.metadataKey} = ${params.metadataValue}`,
+        ]
+      : [buildTextSearchCondition(params.searchTerm)];
 
   if (params.page) {
     const cursor = await db
@@ -302,6 +305,21 @@ export async function searchCustomers(
     next_page: hasMore ? data[data.length - 1]?.id ?? null : null,
     url: "/api/customers/search",
   };
+}
+
+function escapeLikePattern(value: string) {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
+function buildTextSearchCondition(searchTerm: string) {
+  const pattern = `%${escapeLikePattern(searchTerm.trim().toLowerCase())}%`;
+
+  return or(
+    sql<boolean>`lower(coalesce(${customers.name}, '')) like ${pattern} escape '\\'`,
+    sql<boolean>`lower(coalesce(${customers.email}, '')) like ${pattern} escape '\\'`,
+    sql<boolean>`lower(${customers.id}) like ${pattern} escape '\\'`,
+    sql<boolean>`lower(coalesce(${customers.metadata} ->> 'external_id', '')) like ${pattern} escape '\\'`
+  )!;
 }
 
 // --- Tax ID sub-resource ---

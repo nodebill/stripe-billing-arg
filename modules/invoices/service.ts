@@ -1,10 +1,11 @@
-import { and, desc, eq, gt, lt } from "drizzle-orm";
+import { and, desc, eq, gt, gte, lt } from "drizzle-orm";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   invoiceDeliveries,
   invoiceLineItems,
   invoices,
 } from "@/infrastructure/database/schema";
+import { fromUtcDateString, toUtcDateExclusiveEnd } from "@/modules/shared/time";
 import { toUnix } from "@/modules/shared/time";
 import type {
   Invoice,
@@ -141,6 +142,13 @@ export async function listInvoices(
     conditions.push(eq(invoices.status, params.status));
   }
 
+  if (params.date_from) {
+    conditions.push(gte(invoices.createdAt, fromUtcDateString(params.date_from)));
+  }
+
+  if (params.date_to) {
+    conditions.push(lt(invoices.createdAt, toUtcDateExclusiveEnd(params.date_to)));
+  }
   if (params.starting_after) {
     const cursor = await db
       .select({ createdAt: invoices.createdAt })

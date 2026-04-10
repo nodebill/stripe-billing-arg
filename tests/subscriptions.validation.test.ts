@@ -90,6 +90,8 @@ test("accepts global subscription list filters with limit 200", () => {
     limit: 200,
     customer: "cus_test",
     subscription: "sub_test",
+    date_from: "2026-04-01",
+    date_to: "2026-04-30",
   });
 
   assert.equal(parsed.success, true);
@@ -98,6 +100,8 @@ test("accepts global subscription list filters with limit 200", () => {
   assert.equal(parsed.data.limit, 200);
   assert.equal(parsed.data.customer, "cus_test");
   assert.equal(parsed.data.subscription, "sub_test");
+  assert.equal(parsed.data.date_from, "2026-04-01");
+  assert.equal(parsed.data.date_to, "2026-04-30");
 });
 
 test("rejects subscription list limits above 200", () => {
@@ -115,4 +119,32 @@ test("bulk cycle close accepts empty filters to refresh all active subscriptions
   const parsed = bulkCloseSubscriptionCyclesSchema.safeParse({});
 
   assert.equal(parsed.success, true);
+});
+
+test("accepts bulk cycle close with a UTC date range", () => {
+  const parsed = bulkCloseSubscriptionCyclesSchema.safeParse({
+    status: "active",
+    date_from: "2026-04-01",
+    date_to: "2026-04-30",
+  });
+
+  assert.equal(parsed.success, true);
+  if (!parsed.success) return;
+
+  assert.equal(parsed.data.status, "active");
+  assert.equal(parsed.data.date_from, "2026-04-01");
+  assert.equal(parsed.data.date_to, "2026-04-30");
+});
+
+test("rejects subscription date ranges where date_to is before date_from", () => {
+  const parsed = listSubscriptionsSchema.safeParse({
+    status: "active",
+    date_from: "2026-04-30",
+    date_to: "2026-04-01",
+  });
+
+  assert.equal(parsed.success, false);
+  if (parsed.success) return;
+
+  assert.match(parsed.error.issues[0]?.message ?? "", /date_to/i);
 });

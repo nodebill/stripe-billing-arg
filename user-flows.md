@@ -46,10 +46,10 @@
 ## Global billing subscriptions
 
 1. The user opens `/billing/subscriptions`.
-2. The page loads up to 200 active subscriptions from `GET /api/subscriptions?status=active&limit=200`.
-3. The user can narrow the list with exact `customer_id` and `subscription_id` filters and re-run the query without leaving the page.
+2. The page loads up to 200 subscriptions from `GET /api/subscriptions?status=active&limit=200`.
+3. The user can change status and narrow the list with exact `customer_id`, exact `subscription_id`, and UTC `date_from` / `date_to` filters over `current_period_end`, then re-run the query without leaving the page.
 4. The page resolves each subscription row back to its customer link and price label when those records are available.
-5. The `Refresh` action stays disabled until at least one exact filter is applied.
+5. The `Refresh` action stays disabled unless the applied status is `active` and at least one narrowing filter is present.
 6. After confirmation, the UI posts the active filter set to `POST /api/subscriptions/close_cycles`.
 7. The backend processes exactly one overdue cycle per matching active subscription, returns per-row outcomes, and the page reloads the filtered list.
 8. If more than 200 matching subscriptions exist, the user can load more results from the same screen.
@@ -58,14 +58,14 @@
 
 1. The user opens `/billing/invoices`.
 2. The page loads up to 200 invoices from `GET /api/invoices?limit=200`.
-3. The user can filter the queue by workflow state: `draft`, `invoiced`, or `sent`.
+3. The user can narrow the list with workflow `status` and UTC `date_from` / `date_to` filters over invoice creation time.
 4. The table shows invoice ID, customer link, subscription ID, workflow state, payment state, collection method, amount, timing, and delivery state.
 5. The `Refresh drafts` action runs `POST /api/internal/billing/process` and reloads the list.
 6. The user can select one or more `draft` invoices and preview the AFIP and PDF payloads with `POST /api/invoices/issue/preview`.
 7. The user can select one or more `draft` invoices and issue them with `POST /api/invoices/issue`.
 8. The user can select one or more `invoiced` invoices and send them with `POST /api/invoices/send`.
 9. The user can open the shared invoice detail dialog from the global list without leaving `/billing/invoices`.
-10. If more than 200 invoices exist, the user can load more results from the same screen.
+10. If more than 200 invoices exist, the user can load more results from the same screen without losing the applied filters.
 
 ## Customers index
 
@@ -74,7 +74,7 @@
 3. The customer import dialog explains the required CSV columns for customer creation, including the optional `tax_id_type` and `tax_id_value` pair plus the optional `payment_method_billing_name`, shows an example file, and uploads to `POST /api/customers/import`.
 4. The subscription import dialog explains the required CSV columns for multi-customer subscription creation, shows an example file, and uploads to `POST /api/subscriptions/import`.
 5. Both import dialogs refresh the page after processing. Successful rows create records immediately, while row-level failures remain visible in the dialog with their CSV line numbers so the operator can fix and retry.
-6. The search box filters loaded customers by name, email, or ID and also performs an exact remote search by `metadata.external_id`.
+6. The search box debounces to `GET /api/customers/search` and searches the backend by name, email, customer ID, or `metadata.external_id`, including customers not yet loaded in the current page.
 7. Clicking a customer name opens `/customers/[id]`.
 
 ## Customer detail and billing

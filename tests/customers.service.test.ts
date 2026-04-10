@@ -115,6 +115,7 @@ test("customer search returns only exact external_id matches in descending order
   await setCustomerTimestamp(second.id, 1_700_000_100);
 
   const results = await searchCustomers({
+    query_mode: "metadata",
     metadataKey: "external_id",
     metadataValue: "crm_shared",
   });
@@ -149,6 +150,7 @@ test("customer search paginates with page based on the last returned customer id
   await setCustomerTimestamp(third.id, 1_700_000_200);
 
   const firstPage = await searchCustomers({
+    query_mode: "metadata",
     metadataKey: "external_id",
     metadataValue: "crm_page",
     limit: 2,
@@ -162,6 +164,7 @@ test("customer search paginates with page based on the last returned customer id
   );
 
   const secondPage = await searchCustomers({
+    query_mode: "metadata",
     metadataKey: "external_id",
     metadataValue: "crm_page",
     limit: 2,
@@ -173,6 +176,53 @@ test("customer search paginates with page based on the last returned customer id
   assert.deepEqual(
     secondPage.data.map((customer) => customer.id),
     [first.id]
+  );
+});
+
+test("customer free-text search matches name, email, id, and external_id", async () => {
+  await resetDb();
+
+  const byName = await createCustomer({
+    name: "Acme Holdings",
+    email: "billing@acme.test",
+  });
+  const byEmail = await createCustomer({
+    email: "ops-team@example.com",
+  });
+  const byExternalId = await createCustomer({
+    email: "external@example.com",
+    metadata: { external_id: "crm_9000" },
+  });
+
+  await setCustomerTimestamp(byName.id, 1_700_000_000);
+  await setCustomerTimestamp(byEmail.id, 1_700_000_100);
+  await setCustomerTimestamp(byExternalId.id, 1_700_000_200);
+
+  const byNameResults = await searchCustomers({
+    query_mode: "text",
+    searchTerm: "acme",
+  });
+  assert.deepEqual(byNameResults.data.map((customer) => customer.id), [byName.id]);
+
+  const byEmailResults = await searchCustomers({
+    query_mode: "text",
+    searchTerm: "ops-team",
+  });
+  assert.deepEqual(byEmailResults.data.map((customer) => customer.id), [byEmail.id]);
+
+  const byIdResults = await searchCustomers({
+    query_mode: "text",
+    searchTerm: byExternalId.id.slice(0, 10),
+  });
+  assert.deepEqual(byIdResults.data.map((customer) => customer.id), [byExternalId.id]);
+
+  const byExternalIdResults = await searchCustomers({
+    query_mode: "text",
+    searchTerm: "crm_9000",
+  });
+  assert.deepEqual(
+    byExternalIdResults.data.map((customer) => customer.id),
+    [byExternalId.id]
   );
 });
 

@@ -22,7 +22,8 @@ Query params:
 - `page`
 
 Supported query shape in this version:
-- `metadata['external_id']:'value'`
+- Free-text substring search across `name`, `email`, `id`, and `metadata.external_id`
+- Legacy exact metadata query: `metadata['external_id']:'value'`
 
 ## `POST /api/customers`
 

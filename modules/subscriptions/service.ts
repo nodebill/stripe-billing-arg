@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   BillingCycleError,
@@ -18,7 +18,9 @@ import {
 import { multiplyDecimalByFractionAndRound } from "@/modules/shared/fixed-decimal";
 import {
   addRecurringInterval,
+  fromUtcDateString,
   resolveBillingCycleAnchorConfig,
+  toUtcDateExclusiveEnd,
   toUnix,
 } from "@/modules/shared/time";
 import type {
@@ -678,6 +680,14 @@ export async function listSubscriptions(
     conditions.push(eq(subscriptions.status, params.status));
   }
 
+  if (params.date_from) {
+    conditions.push(gte(subscriptions.currentPeriodEnd, fromUtcDateString(params.date_from)));
+  }
+
+  if (params.date_to) {
+    conditions.push(lt(subscriptions.currentPeriodEnd, toUtcDateExclusiveEnd(params.date_to)));
+  }
+
   if (params.starting_after) {
     const cursor = await db
       .select({ createdAt: subscriptions.createdAt })
@@ -793,6 +803,14 @@ export async function bulkCloseSubscriptionCycles(
 
   if (input.subscription) {
     conditions.push(eq(subscriptions.id, input.subscription));
+  }
+
+  if (input.date_from) {
+    conditions.push(gte(subscriptions.currentPeriodEnd, fromUtcDateString(input.date_from)));
+  }
+
+  if (input.date_to) {
+    conditions.push(lt(subscriptions.currentPeriodEnd, toUtcDateExclusiveEnd(input.date_to)));
   }
 
   const rows = await db

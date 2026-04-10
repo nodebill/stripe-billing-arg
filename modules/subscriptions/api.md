@@ -10,6 +10,8 @@ Query params:
 - `customer` (optional)
 - `subscription` (optional exact subscription ID)
 - `status`
+- `date_from` (optional `YYYY-MM-DD`, inclusive UTC filter on `current_period_end`)
+- `date_to` (optional `YYYY-MM-DD`, inclusive UTC filter on `current_period_end`)
 - `limit`
 - `starting_after`
 - `ending_before`
@@ -136,10 +138,13 @@ Manually closes exactly one overdue billing cycle for each matching active subsc
 Request body:
 - `customer?`
 - `subscription?`
+- `status?` (`active` only)
+- `date_from?`
+- `date_to?`
 
 Rules:
 - Matching is performed only against active subscriptions.
-- If no exact filter is provided, the operation runs against all active subscriptions.
+- At least one narrowing filter is required: `customer`, `subscription`, `date_from`, or `date_to`.
 - The operation is sequential and processes at most one overdue cycle per matched subscription.
 - Subscriptions that are not yet due are returned as `skipped` results instead of aborting the batch.
 - The response includes aggregate counts plus per-subscription outcomes.
