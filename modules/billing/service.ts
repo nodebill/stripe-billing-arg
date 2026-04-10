@@ -818,8 +818,8 @@ async function createInvoiceWithLineItems(
     .where(
       and(
         eq(invoices.subscriptionId, subscription.id),
-        eq(invoices.periodStart, nextPeriodStart),
-        eq(invoices.periodEnd, nextPeriodEnd)
+        eq(invoices.periodStart, usagePeriodStart),
+        eq(invoices.periodEnd, usagePeriodEnd)
       )
     )
     .limit(1);
@@ -853,8 +853,8 @@ async function createInvoiceWithLineItems(
       amountDue: subtotal + taxAmount,
       amountPaid: 0,
       dueDate: null,
-      periodStart: nextPeriodStart,
-      periodEnd: nextPeriodEnd,
+      periodStart: usagePeriodStart,
+      periodEnd: usagePeriodEnd,
       autoAdvance: true,
       finalizedAt: null,
       paidAt: null,
@@ -993,6 +993,20 @@ async function collectInvoicesById(runAt: Date, invoiceIds: string[]) {
       .limit(1);
     const subscription = subscriptionRows[0];
 
+    const priceRows = await db
+      .select({ recurringInterval: prices.recurringInterval })
+      .from(subscriptionItems)
+      .innerJoin(prices, eq(subscriptionItems.priceId, prices.id))
+      .where(eq(subscriptionItems.subscriptionId, invoice.subscriptionId))
+      .limit(1);
+    const recurringInterval = priceRows[0]?.recurringInterval;
+
+    // invoice.periodEnd is the consumed cycle end, which becomes the next period start.
+    const nextPeriodStart = invoice.periodEnd;
+    const nextPeriodEnd = recurringInterval
+      ? addRecurringInterval(nextPeriodStart, recurringInterval)
+      : invoice.periodEnd;
+
     if (invoice.collectionMethod === "charge_automatically") {
       await db.transaction(async (tx) => {
         await tx
@@ -1012,11 +1026,11 @@ async function collectInvoicesById(runAt: Date, invoiceIds: string[]) {
               status: "active",
               renewalMode: resolveAdvancedRenewalMode(
                 subscription,
-                invoice.periodEnd,
+                nextPeriodEnd,
                 runAt
               ),
-              currentPeriodStart: invoice.periodStart,
-              currentPeriodEnd: invoice.periodEnd,
+              currentPeriodStart: nextPeriodStart,
+              currentPeriodEnd: nextPeriodEnd,
               updatedAt: runAt,
             })
             .where(eq(subscriptions.id, invoice.subscriptionId));
@@ -1054,11 +1068,11 @@ async function collectInvoicesById(runAt: Date, invoiceIds: string[]) {
         await tx
           .update(subscriptions)
           .set({
-            currentPeriodStart: invoice.periodStart,
-            currentPeriodEnd: invoice.periodEnd,
+            currentPeriodStart: nextPeriodStart,
+            currentPeriodEnd: nextPeriodEnd,
             renewalMode: resolveAdvancedRenewalMode(
               subscription,
-              invoice.periodEnd,
+              nextPeriodEnd,
               runAt
             ),
             status: subscription.status === "past_due" ? "past_due" : "active",
