@@ -29,6 +29,13 @@
       "when": 1775769217953,
       "tag": "0003_chunky_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775772000000,
+      "tag": "0004_legal_invoice_workflow",
+      "breakpoints": true
     }
   ]
 }

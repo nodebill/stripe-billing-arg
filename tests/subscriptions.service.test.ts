@@ -371,7 +371,7 @@ test("billing_cycle_anchor_config can align the first renewal without an initial
   assert.equal(invoiceRows.length, 0);
 });
 
-test("anchored auto-charge subscriptions create an immediate paid proration invoice", async () => {
+test("anchored auto-charge subscriptions create an immediate draft proration invoice", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
 
@@ -387,8 +387,9 @@ test("anchored auto-charge subscriptions create an immediate paid proration invo
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows.length, 1);
-  assert.equal(invoiceRows[0]?.status, "paid");
-  assert.equal(invoiceRows[0]?.amountPaid, invoiceRows[0]?.amountDue);
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
+  assert.equal(invoiceRows[0]?.amountPaid, 0);
   assert.equal(
     Math.floor((invoiceRows[0]?.periodEnd.getTime() ?? 0) / 1000),
     subscription.current_period_end
@@ -402,7 +403,7 @@ test("anchored auto-charge subscriptions create an immediate paid proration invo
   );
 });
 
-test("anchored send-invoice subscriptions create an open invoice and mocked delivery", async () => {
+test("anchored send-invoice subscriptions create an immediate draft invoice", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
 
@@ -418,12 +419,12 @@ test("anchored send-invoice subscriptions create an open invoice and mocked deli
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows.length, 1);
-  assert.equal(invoiceRows[0]?.status, "open");
-  assert.ok(invoiceRows[0]?.dueDate);
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
+  assert.equal(invoiceRows[0]?.dueDate, null);
 
   const deliveryRows = await getDb().select().from(invoiceDeliveries);
-  assert.equal(deliveryRows.length, 1);
-  assert.equal(deliveryRows[0]?.status, "sent");
+  assert.equal(deliveryRows.length, 0);
 });
 
 test("backdating to the first day of the current month updates the active period without an invoice when proration is none", async () => {
@@ -494,7 +495,8 @@ test("backdated licensed subscriptions can create a catch-up proration invoice",
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows.length, 1);
-  assert.equal(invoiceRows[0]?.status, "paid");
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
   assert.ok((invoiceRows[0]?.amountDue ?? 0) > 0);
   assert.equal(invoiceRows[0]?.periodStart.getTime(), backdate.getTime());
   assert.ok((invoiceRows[0]?.periodEnd.getTime() ?? 0) > backdate.getTime());
@@ -807,7 +809,7 @@ test("creates draft renewal invoices before finalization", async () => {
   assert.equal(invoiceRows[0]?.status, "draft");
 });
 
-test("future grace-period threshold is policy-driven during finalization", async () => {
+test("future grace-period threshold no longer auto-finalizes drafts", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
   const subscription = await createSubscription({
@@ -832,10 +834,10 @@ test("future grace-period threshold is policy-driven during finalization", async
     new Date("2026-04-04T11:01:00.000Z"),
     60 * 60 * 1000
   );
-  assert.equal(finalized.finalizedInvoices, 1);
+  assert.equal(finalized.finalizedInvoices, 0);
 
   invoiceRows = await getDb().select().from(invoices);
-  assert.equal(invoiceRows[0]?.status, "open");
+  assert.equal(invoiceRows[0]?.status, "draft");
 });
 
 test("renewal processing is idempotent across repeated runs", async () => {
@@ -872,19 +874,20 @@ test("auto-charge renewals produce a paid invoice and advance the billing period
   });
 
   assert.equal(summary.created_invoices, 1);
-  assert.equal(summary.paid_invoices, 1);
+  assert.equal(summary.refreshed_drafts, 0);
 
   const invoiceRows = await getDb().select().from(invoices);
-  assert.equal(invoiceRows[0]?.status, "paid");
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
 
   const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.status, "active");
-  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+  assert.equal(renewed.current_period_start, Math.floor((pastEnd.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000));
   assert.ok(renewed.current_period_end > renewed.current_period_start);
 });
 
-test("send-invoice renewals create an open invoice and mocked delivery", async () => {
+test("send-invoice renewals create a draft invoice and wait for manual send", async () => {
   await resetDb();
   const fixture = await createRecurringFixture();
   const subscription = await createSubscription({
@@ -901,27 +904,30 @@ test("send-invoice renewals create an open invoice and mocked delivery", async (
   });
 
   assert.equal(summary.created_invoices, 1);
-  assert.equal(summary.sent_invoices, 1);
+  assert.equal(summary.refreshed_drafts, 0);
 
   const invoiceRows = await getDb().select().from(invoices);
-  assert.equal(invoiceRows[0]?.status, "open");
-  assert.ok(invoiceRows[0]?.dueDate);
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
+  assert.equal(invoiceRows[0]?.dueDate, null);
 
   const deliveryRows = await getDb().select().from(invoiceDeliveries);
-  assert.equal(deliveryRows.length, 1);
-  assert.equal(deliveryRows[0]?.status, "sent");
+  assert.equal(deliveryRows.length, 0);
 
   const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
   assert.equal(renewed.status, "active");
-  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+  assert.equal(
+    renewed.current_period_start,
+    Math.floor((pastEnd.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000)
+  );
 
   const invoiceList = await listInvoices({
     customer: fixture.customer.id,
     limit: 10,
   });
   assert.equal(invoiceList.data.length, 1);
-  assert.equal(invoiceList.data[0]?.latest_delivery?.status, "sent");
+  assert.equal(invoiceList.data[0]?.latest_delivery, null);
 });
 
 test("metered renewals bill prior-period usage and keep invoice periods on the next cycle", async () => {
@@ -960,11 +966,12 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
   });
 
   assert.equal(summary.created_invoices, 1);
-  assert.equal(summary.paid_invoices, 1);
+  assert.equal(summary.refreshed_drafts, 0);
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows[0]?.subtotal, 600);
-  assert.equal(invoiceRows[0]?.amountDue, 600);
+  assert.equal(invoiceRows[0]?.amountDue, 726);
+  assert.equal(invoiceRows[0]?.taxAmount, 126);
   assert.equal(invoiceRows[0]?.periodStart.getTime(), pastEnd.getTime());
 
   const lineItems = await getDb().select().from(invoiceLineItems);
@@ -975,7 +982,10 @@ test("metered renewals bill prior-period usage and keep invoice periods on the n
 
   const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
-  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+  assert.equal(
+    renewed.current_period_start,
+    Math.floor((pastEnd.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000)
+  );
 });
 
 test("metered renewals support decimal unit amounts and round half up to minor units", async () => {
@@ -1010,11 +1020,12 @@ test("metered renewals support decimal unit amounts and round half up to minor u
   });
 
   assert.equal(summary.created_invoices, 1);
-  assert.equal(summary.paid_invoices, 1);
+  assert.equal(summary.refreshed_drafts, 0);
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows[0]?.subtotal, 11);
-  assert.equal(invoiceRows[0]?.amountDue, 11);
+  assert.equal(invoiceRows[0]?.amountDue, 13);
+  assert.equal(invoiceRows[0]?.taxAmount, 2);
   assert.equal(invoiceRows[0]?.periodStart.getTime(), pastEnd.getTime());
 
   const lineItems = await getDb().select().from(invoiceLineItems);
@@ -1024,7 +1035,7 @@ test("metered renewals support decimal unit amounts and round half up to minor u
   assert.equal(lineItems[0]?.periodEnd.getTime(), pastEnd.getTime());
 });
 
-test("zero-usage metered renewals create zero-amount invoices and still advance subscriptions", async () => {
+test("zero-usage metered renewals create zero-amount draft invoices without advancing subscriptions", async () => {
   await resetDb();
   const fixture = await createMeteredFixture("count");
   const subscription = await createSubscription({
@@ -1041,12 +1052,13 @@ test("zero-usage metered renewals create zero-amount invoices and still advance 
   });
 
   assert.equal(summary.created_invoices, 1);
-  assert.equal(summary.paid_invoices, 1);
+  assert.equal(summary.refreshed_drafts, 0);
 
   const invoiceRows = await getDb().select().from(invoices);
   assert.equal(invoiceRows[0]?.subtotal, 0);
   assert.equal(invoiceRows[0]?.amountDue, 0);
-  assert.equal(invoiceRows[0]?.status, "paid");
+  assert.equal(invoiceRows[0]?.status, "draft");
+  assert.equal(invoiceRows[0]?.paymentStatus, "pending");
 
   const lineItems = await getDb().select().from(invoiceLineItems);
   assert.equal(lineItems[0]?.quantity, 0);
@@ -1054,7 +1066,10 @@ test("zero-usage metered renewals create zero-amount invoices and still advance 
 
   const renewed = await getSubscription(subscription.id);
   assert.ok(renewed);
-  assert.equal(renewed.current_period_start, Math.floor(pastEnd.getTime() / 1000));
+  assert.equal(
+    renewed.current_period_start,
+    Math.floor((pastEnd.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000)
+  );
 });
 
 test("overdue send-invoice renewals move invoices and subscriptions to past_due", async () => {
@@ -1076,6 +1091,8 @@ test("overdue send-invoice renewals move invoices and subscriptions to past_due"
   await getDb()
     .update(invoices)
     .set({
+      status: "sent",
+      paymentStatus: "pending",
       dueDate: new Date("2026-04-04T14:00:00.000Z"),
       updatedAt: new Date("2026-04-04T14:00:00.000Z"),
     })
@@ -1085,7 +1102,8 @@ test("overdue send-invoice renewals move invoices and subscriptions to past_due"
   assert.equal(overdue.pastDueInvoices, 1);
 
   const invoiceRows = await getDb().select().from(invoices);
-  assert.equal(invoiceRows[0]?.status, "past_due");
+  assert.equal(invoiceRows[0]?.status, "sent");
+  assert.equal(invoiceRows[0]?.paymentStatus, "past_due");
 
   const pastDueSubscription = await getSubscription(subscription.id);
   assert.ok(pastDueSubscription);
@@ -1191,7 +1209,7 @@ test("billing processor stores its last run summary in processor state", async (
 
   const state = await getBillingProcessorState();
   assert.equal(state.last_summary?.created_invoices, 1);
-  assert.equal(state.last_summary?.paid_invoices, 1);
+  assert.equal(state.last_summary?.refreshed_drafts, 0);
 });
 
 test("future schedules become active when their first phase starts", async () => {
@@ -1451,21 +1469,22 @@ test("manual cycle close bills one historical metered cycle and returns the subs
 
   assert.ok(invoice);
   assert.ok(renewed);
-  assert.equal(invoice.status, "open");
+  assert.equal(invoice.status, "draft");
+  assert.equal(invoice.payment_status, "pending");
   assert.equal(invoice.subtotal, 10);
-  assert.equal(invoice.amount_due, 10);
+  assert.equal(invoice.amount_due, 12);
   assert.equal(invoice.line_items.length, 1);
   assert.equal(invoice.line_items[0]?.billing_reason, "metered_recurring");
   assert.equal(invoice.line_items[0]?.quantity, 10);
   assert.equal(invoice.line_items[0]?.amount, 10);
   assert.equal(invoice.line_items[0]?.period_start, Math.floor(cycleStart.getTime() / 1000));
   assert.equal(invoice.line_items[0]?.period_end, Math.floor(cycleEnd.getTime() / 1000));
-  assert.equal(renewed.current_period_start, Math.floor(cycleEnd.getTime() / 1000));
+  assert.equal(renewed.current_period_start, Math.floor(cycleStart.getTime() / 1000));
   assert.equal(
     renewed.current_period_end,
-    Math.floor(new Date("2026-05-01T00:00:00.000Z").getTime() / 1000)
+    Math.floor(cycleEnd.getTime() / 1000)
   );
-  assert.equal(renewed.renewal_mode, "automatic");
+  assert.equal(renewed.renewal_mode, "manual_until_current");
 });
 
 test("late metered usage is billed in the next invoice as a carryforward line item using the original cycle price", async () => {
@@ -1512,6 +1531,15 @@ test("late metered usage is billed in the next invoice as a carryforward line it
   const firstInvoice = await getInvoice(firstClose.invoiceId);
   assert.ok(firstInvoice);
   assert.equal(firstInvoice.line_items[0]?.amount, 1000);
+  await getDb()
+    .update(subscriptions)
+    .set({
+      currentPeriodStart: new Date("2026-04-01T00:00:00.000Z"),
+      currentPeriodEnd: new Date("2026-05-01T00:00:00.000Z"),
+      renewalMode: "automatic",
+      updatedAt: new Date("2026-04-09T12:01:00.000Z"),
+    })
+    .where(eq(subscriptions.id, subscription.id));
 
   await insertMeterEventRow({
     meterId: fixture.meter.id,

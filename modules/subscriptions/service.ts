@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import {
   BillingCycleError,
   closeSubscriptionCycle as closeSubscriptionCycleInBilling,
@@ -9,7 +8,6 @@ import { getInvoice } from "@/modules/invoices/service";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   customers,
-  invoiceDeliveries,
   invoiceLineItems,
   invoices,
   paymentMethods,
@@ -291,7 +289,6 @@ async function createImmediateProrationInvoice(
   tx: DbLike,
   params: {
     customerId: string;
-    customerEmail: string | null;
     subscriptionId: string;
     priceId: string;
     currency: string;
@@ -304,32 +301,26 @@ async function createImmediateProrationInvoice(
 ) {
   const invoiceId = `in_${nanoid()}`;
   const lineItemId = `il_${nanoid()}`;
-  const dueDate =
-    params.collectionMethod === "send_invoice"
-      ? new Date(params.now.getTime() + SEND_INVOICE_DUE_DAYS * 86400_000)
-      : null;
 
   await tx.insert(invoices).values({
     id: invoiceId,
     customerId: params.customerId,
     subscriptionId: params.subscriptionId,
-    status:
-      params.collectionMethod === "charge_automatically" ? "paid" : "open",
+    status: "draft",
+    paymentStatus: "pending",
     collectionMethod: params.collectionMethod,
     currency: params.currency,
     subtotal: params.prorationAmount,
     amountDue: params.prorationAmount,
-    amountPaid:
-      params.collectionMethod === "charge_automatically"
-        ? params.prorationAmount
-        : 0,
-    dueDate,
+    amountPaid: 0,
+    dueDate: null,
     periodStart: params.periodStart,
     periodEnd: params.periodEnd,
     autoAdvance: true,
     finalizedAt: params.now,
-    paidAt:
-      params.collectionMethod === "charge_automatically" ? params.now : null,
+    invoicedAt: null,
+    paidAt: null,
+    legalDocument: null,
     createdAt: params.now,
     updatedAt: params.now,
   });
@@ -347,24 +338,6 @@ async function createImmediateProrationInvoice(
     createdAt: params.now,
     updatedAt: params.now,
   });
-
-  if (params.collectionMethod === "send_invoice") {
-    await tx.insert(invoiceDeliveries).values({
-      id: `idel_${nanoid()}`,
-      invoiceId,
-      channel: "mock_email",
-      status: "sent",
-      recipient: params.customerEmail,
-      payload: {
-        invoice_id: invoiceId,
-        customer_id: params.customerId,
-        subscription_id: params.subscriptionId,
-      },
-      sentAt: params.now,
-      createdAt: params.now,
-      updatedAt: params.now,
-    });
-  }
 }
 
 export async function createSubscription(
@@ -590,7 +563,6 @@ export async function createSubscription(
 
       await createImmediateProrationInvoice(tx, {
         customerId: input.customer,
-        customerEmail: customerRows[0]?.email ?? null,
         subscriptionId,
         priceId: price.id,
         currency: price.currency,

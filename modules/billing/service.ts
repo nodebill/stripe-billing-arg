@@ -10,12 +10,9 @@ import {
   sql,
 } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { SEND_INVOICE_DUE_DAYS } from "@/modules/billing/policy";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
   billingProcessorState,
-  customers,
-  invoiceDeliveries,
   invoiceLineItems,
   invoices,
   meterEvents,
@@ -48,7 +45,6 @@ type MeterEventRow = typeof meterEvents.$inferSelect;
 type LoadedRenewableSubscription = {
   subscription: SubscriptionRow;
   price: PriceRow;
-  customerEmail: string | null;
 };
 
 type InvoiceLineItemValue = {
@@ -90,9 +86,7 @@ function emptySummary(): BillingProcessorSummary {
     processed_subscriptions: 0,
     canceled_subscriptions: 0,
     created_invoices: 0,
-    finalized_invoices: 0,
-    paid_invoices: 0,
-    sent_invoices: 0,
+    refreshed_drafts: 0,
     past_due_invoices: 0,
   };
 }
@@ -116,9 +110,7 @@ function toProcessorState(
             processed_subscriptions: Number(summary.processed_subscriptions ?? 0),
             canceled_subscriptions: Number(summary.canceled_subscriptions ?? 0),
             created_invoices: Number(summary.created_invoices ?? 0),
-            finalized_invoices: Number(summary.finalized_invoices ?? 0),
-            paid_invoices: Number(summary.paid_invoices ?? 0),
-            sent_invoices: Number(summary.sent_invoices ?? 0),
+            refreshed_drafts: Number(summary.refreshed_drafts ?? 0),
             past_due_invoices: Number(summary.past_due_invoices ?? 0),
           },
     updated_at: Math.floor(row.updatedAt.getTime() / 1000),
@@ -212,6 +204,39 @@ async function releaseLease(
     .where(eq(billingProcessorState.id, PROCESSOR_STATE_ID));
 }
 
+async function clearLease(runAt: Date, error: string | null) {
+  const db = getDb();
+  await db
+    .update(billingProcessorState)
+    .set({
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastError: error,
+      updatedAt: runAt,
+    })
+    .where(eq(billingProcessorState.id, PROCESSOR_STATE_ID));
+}
+
+export async function runWithBillingLease<T>(
+  trigger: string,
+  callback: (runAt: Date) => Promise<T>,
+  runAt = new Date()
+) {
+  await ensureTables();
+  await acquireLease(runAt, trigger);
+  let errorMessage: string | null = null;
+
+  try {
+    return await callback(runAt);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Unknown billing lease error";
+    throw error;
+  } finally {
+    await clearLease(runAt, errorMessage);
+  }
+}
+
 async function loadPriceForSubscription(subscriptionId: string) {
   const db = getDb();
   const itemRows = await db
@@ -240,17 +265,6 @@ async function loadPriceForSubscription(subscriptionId: string) {
   return price;
 }
 
-async function loadCustomerEmail(customerId: string) {
-  const db = getDb();
-  const customerRows = await db
-    .select({ email: customers.email })
-    .from(customers)
-    .where(eq(customers.id, customerId))
-    .limit(1);
-
-  return customerRows[0]?.email ?? null;
-}
-
 async function loadRenewableSubscription(
   subscriptionId: string
 ): Promise<LoadedRenewableSubscription | null> {
@@ -274,7 +288,6 @@ async function loadRenewableSubscription(
   return {
     subscription,
     price,
-    customerEmail: await loadCustomerEmail(subscription.customerId),
   };
 }
 
@@ -307,7 +320,6 @@ async function loadDueSubscriptions(runAt: Date): Promise<LoadedRenewableSubscri
     loaded.push({
       subscription: row,
       price,
-      customerEmail: await loadCustomerEmail(row.customerId),
     });
   }
 
@@ -813,7 +825,7 @@ async function createInvoiceWithLineItems(
   const usagePeriodEnd = subscription.currentPeriodEnd;
 
   const existing = await db
-    .select({ id: invoices.id })
+    .select()
     .from(invoices)
     .where(
       and(
@@ -824,10 +836,6 @@ async function createInvoiceWithLineItems(
     )
     .limit(1);
 
-  if (existing[0]) {
-    return { invoiceId: existing[0].id, created: false };
-  }
-
   const lineItems = await buildLineItems(
     subscription,
     price,
@@ -836,31 +844,87 @@ async function createInvoiceWithLineItems(
     nextPeriodStart,
     nextPeriodEnd
   );
-  const invoiceId = `in_${nanoid()}`;
   const subtotal = lineItems.reduce((sum, lineItem) => sum + lineItem.amount, 0);
   const taxAmount = Math.round(subtotal * 0.21);
 
+  const existingInvoice = existing[0] ?? null;
+  if (existingInvoice && existingInvoice.status !== "draft") {
+    return { invoiceId: existingInvoice.id, created: false, refreshed: false };
+  }
+
+  const invoiceId = existingInvoice?.id ?? `in_${nanoid()}`;
+
   await db.transaction(async (tx) => {
-    await tx.insert(invoices).values({
-      id: invoiceId,
-      customerId: subscription.customerId,
-      subscriptionId: subscription.id,
-      status: "draft",
-      collectionMethod: subscription.collectionMethod,
-      currency: price.currency,
-      subtotal,
-      taxAmount,
-      amountDue: subtotal + taxAmount,
-      amountPaid: 0,
-      dueDate: null,
-      periodStart: nextPeriodStart,
-      periodEnd: nextPeriodEnd,
-      autoAdvance: true,
-      finalizedAt: null,
-      paidAt: null,
-      createdAt: runAt,
-      updatedAt: runAt,
-    });
+    if (existingInvoice) {
+      const existingLineItems = await tx
+        .select({ id: invoiceLineItems.id })
+        .from(invoiceLineItems)
+        .where(eq(invoiceLineItems.invoiceId, existingInvoice.id));
+
+      if (existingLineItems.length > 0) {
+        await tx
+          .update(meterEvents)
+          .set({
+            invoiceLineItemId: null,
+            updatedAt: runAt,
+          })
+          .where(
+            inArray(
+              meterEvents.invoiceLineItemId,
+              existingLineItems.map((lineItem) => lineItem.id)
+            )
+          );
+
+        await tx
+          .delete(invoiceLineItems)
+          .where(eq(invoiceLineItems.invoiceId, existingInvoice.id));
+      }
+
+      await tx
+        .update(invoices)
+        .set({
+          status: "draft",
+          collectionMethod: subscription.collectionMethod,
+          currency: price.currency,
+          subtotal,
+          taxAmount,
+          amountDue: subtotal + taxAmount,
+          amountPaid: 0,
+          paymentStatus: "pending",
+          dueDate: null,
+          autoAdvance: true,
+          finalizedAt: null,
+          invoicedAt: null,
+          paidAt: null,
+          legalDocument: null,
+          updatedAt: runAt,
+        })
+        .where(eq(invoices.id, existingInvoice.id));
+    } else {
+      await tx.insert(invoices).values({
+        id: invoiceId,
+        customerId: subscription.customerId,
+        subscriptionId: subscription.id,
+        status: "draft",
+        paymentStatus: "pending",
+        collectionMethod: subscription.collectionMethod,
+        currency: price.currency,
+        subtotal,
+        taxAmount,
+        amountDue: subtotal + taxAmount,
+        amountPaid: 0,
+        dueDate: null,
+        periodStart: nextPeriodStart,
+        periodEnd: nextPeriodEnd,
+        autoAdvance: true,
+        finalizedAt: null,
+        invoicedAt: null,
+        paidAt: null,
+        legalDocument: null,
+        createdAt: runAt,
+        updatedAt: runAt,
+      });
+    }
 
     for (const lineItem of lineItems) {
       const lineItemId = `il_${nanoid()}`;
@@ -895,183 +959,11 @@ async function createInvoiceWithLineItems(
     }
   });
 
-  return { invoiceId, created: true };
-}
-
-function resolveAdvancedRenewalMode(
-  subscription: SubscriptionRow,
-  nextPeriodEnd: Date,
-  runAt: Date
-) {
-  if (subscription.renewalMode === "automatic") {
-    return "automatic" as const;
-  }
-
-  return nextPeriodEnd.getTime() > runAt.getTime()
-    ? "automatic"
-    : "manual_until_current";
-}
-
-async function finalizeInvoicesById(runAt: Date, invoiceIds: string[]) {
-  if (invoiceIds.length === 0) {
-    return { finalizedInvoices: 0 };
-  }
-
-  await ensureTables();
-  const db = getDb();
-  const dueDate = new Date(runAt.getTime() + SEND_INVOICE_DUE_DAYS * 86400_000);
-
-  const draftInvoices = await db
-    .select()
-    .from(invoices)
-    .where(
-      and(
-        inArray(invoices.id, invoiceIds),
-        eq(invoices.status, "draft"),
-        eq(invoices.autoAdvance, true)
-      )
-    )
-    .orderBy(asc(invoices.createdAt), asc(invoices.id));
-
-  let finalizedInvoices = 0;
-
-  for (const invoice of draftInvoices) {
-    await db
-      .update(invoices)
-      .set({
-        status: "open",
-        dueDate:
-          invoice.collectionMethod === "send_invoice" ? dueDate : invoice.dueDate,
-        finalizedAt: runAt,
-        updatedAt: runAt,
-      })
-      .where(eq(invoices.id, invoice.id));
-
-    finalizedInvoices += 1;
-  }
-
-  return { finalizedInvoices };
-}
-
-async function hasDelivery(invoiceId: string) {
-  const db = getDb();
-  const rows = await db
-    .select({ id: invoiceDeliveries.id })
-    .from(invoiceDeliveries)
-    .where(eq(invoiceDeliveries.invoiceId, invoiceId))
-    .limit(1);
-
-  return Boolean(rows[0]);
-}
-
-async function collectInvoicesById(runAt: Date, invoiceIds: string[]) {
-  if (invoiceIds.length === 0) {
-    return { paidInvoices: 0, sentInvoices: 0 };
-  }
-
-  await ensureTables();
-  const db = getDb();
-  const openInvoices = await db
-    .select()
-    .from(invoices)
-    .where(
-      and(
-        inArray(invoices.id, invoiceIds),
-        eq(invoices.status, "open")
-      )
-    )
-    .orderBy(asc(invoices.createdAt), asc(invoices.id));
-
-  let paidInvoices = 0;
-  let sentInvoices = 0;
-
-  for (const invoice of openInvoices) {
-    const subscriptionRows = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.id, invoice.subscriptionId))
-      .limit(1);
-    const subscription = subscriptionRows[0];
-
-    if (invoice.collectionMethod === "charge_automatically") {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(invoices)
-          .set({
-            status: "paid",
-            amountPaid: invoice.amountDue,
-            paidAt: runAt,
-            updatedAt: runAt,
-          })
-          .where(eq(invoices.id, invoice.id));
-
-        if (subscription) {
-          await tx
-            .update(subscriptions)
-            .set({
-              status: "active",
-              renewalMode: resolveAdvancedRenewalMode(
-                subscription,
-                invoice.periodEnd,
-                runAt
-              ),
-              currentPeriodStart: invoice.periodStart,
-              currentPeriodEnd: invoice.periodEnd,
-              updatedAt: runAt,
-            })
-            .where(eq(subscriptions.id, invoice.subscriptionId));
-        }
-      });
-
-      paidInvoices += 1;
-      continue;
-    }
-
-    if (await hasDelivery(invoice.id)) {
-      continue;
-    }
-
-    const customerEmail = await loadCustomerEmail(invoice.customerId);
-
-    await db.transaction(async (tx) => {
-      await tx.insert(invoiceDeliveries).values({
-        id: `idel_${nanoid()}`,
-        invoiceId: invoice.id,
-        channel: "mock_email",
-        status: "sent",
-        recipient: customerEmail,
-        payload: {
-          invoice_id: invoice.id,
-          customer_id: invoice.customerId,
-          subscription_id: invoice.subscriptionId,
-        },
-        sentAt: runAt,
-        createdAt: runAt,
-        updatedAt: runAt,
-      });
-
-      if (subscription && subscription.status !== "canceled") {
-        await tx
-          .update(subscriptions)
-          .set({
-            currentPeriodStart: invoice.periodStart,
-            currentPeriodEnd: invoice.periodEnd,
-            renewalMode: resolveAdvancedRenewalMode(
-              subscription,
-              invoice.periodEnd,
-              runAt
-            ),
-            status: subscription.status === "past_due" ? "past_due" : "active",
-            updatedAt: runAt,
-          })
-          .where(eq(subscriptions.id, invoice.subscriptionId));
-      }
-    });
-
-    sentInvoices += 1;
-  }
-
-  return { paidInvoices, sentInvoices };
+  return {
+    invoiceId,
+    created: !existingInvoice,
+    refreshed: Boolean(existingInvoice),
+  };
 }
 
 async function createRenewalInvoiceForLoadedSubscription(
@@ -1175,6 +1067,7 @@ export async function createRenewalInvoices(runAt: Date) {
   const dueSubscriptions = await loadDueSubscriptions(runAt);
   let canceledSubscriptions = 0;
   let createdInvoices = 0;
+  let refreshedDrafts = 0;
 
   for (const loaded of dueSubscriptions) {
     if (loaded.subscription.cancelAtPeriodEnd) {
@@ -1196,6 +1089,8 @@ export async function createRenewalInvoices(runAt: Date) {
     const result = await createRenewalInvoiceForLoadedSubscription(loaded, runAt);
     if (result.created) {
       createdInvoices += 1;
+    } else if (result.refreshed) {
+      refreshedDrafts += 1;
     }
   }
 
@@ -1203,63 +1098,8 @@ export async function createRenewalInvoices(runAt: Date) {
     processedSubscriptions: dueSubscriptions.length,
     canceledSubscriptions,
     createdInvoices,
+    refreshedDrafts,
   };
-}
-
-export async function finalizeEligibleDraftInvoices(
-  runAt: Date,
-  finalizationDelayMs = 0
-) {
-  await ensureTables();
-  const db = getDb();
-  const finalizeBefore = new Date(runAt.getTime() - finalizationDelayMs);
-  const dueDate = new Date(runAt.getTime() + SEND_INVOICE_DUE_DAYS * 86400_000);
-
-  const draftInvoices = await db
-    .select()
-    .from(invoices)
-    .where(
-      and(
-        eq(invoices.status, "draft"),
-        eq(invoices.autoAdvance, true),
-        lte(invoices.createdAt, finalizeBefore)
-      )
-    )
-    .orderBy(asc(invoices.createdAt), asc(invoices.id));
-
-  let finalizedInvoices = 0;
-
-  for (const invoice of draftInvoices) {
-    await db
-      .update(invoices)
-      .set({
-        status: "open",
-        dueDate:
-          invoice.collectionMethod === "send_invoice" ? dueDate : invoice.dueDate,
-        finalizedAt: runAt,
-        updatedAt: runAt,
-      })
-      .where(eq(invoices.id, invoice.id));
-
-    finalizedInvoices += 1;
-  }
-
-  return { finalizedInvoices };
-}
-
-export async function collectOpenInvoices(runAt: Date) {
-  await ensureTables();
-  const db = getDb();
-  const openInvoices = await db
-    .select({ id: invoices.id })
-    .from(invoices)
-    .where(eq(invoices.status, "open"))
-    .orderBy(asc(invoices.createdAt), asc(invoices.id));
-
-  return collectInvoicesById(
-    runAt,
-    openInvoices.map((invoice) => invoice.id)
-  );
 }
 
 export async function markOverdueInvoices(runAt: Date) {
@@ -1270,7 +1110,8 @@ export async function markOverdueInvoices(runAt: Date) {
     .from(invoices)
     .where(
       and(
-        eq(invoices.status, "open"),
+        eq(invoices.status, "sent"),
+        eq(invoices.paymentStatus, "pending"),
         eq(invoices.collectionMethod, "send_invoice"),
         lte(invoices.dueDate, runAt),
         sql`${invoices.amountPaid} < ${invoices.amountDue}`
@@ -1285,7 +1126,7 @@ export async function markOverdueInvoices(runAt: Date) {
       await tx
         .update(invoices)
         .set({
-          status: "past_due",
+          paymentStatus: "past_due",
           updatedAt: runAt,
         })
         .where(eq(invoices.id, invoice.id));
@@ -1313,15 +1154,18 @@ export async function markOverdueInvoices(runAt: Date) {
   return { pastDueInvoices };
 }
 
+export async function finalizeEligibleDraftInvoices(
+  _runAt?: Date,
+  _finalizationDelayMs?: number
+) {
+  return { finalizedInvoices: 0 };
+}
+
 export async function closeSubscriptionCycle(
   subscriptionId: string,
   runAt = new Date()
 ) {
-  await ensureTables();
-  await acquireLease(runAt, `close_cycle_${subscriptionId}`);
-  const summary = emptySummary();
-
-  try {
+  return runWithBillingLease(`close_cycle_${subscriptionId}`, async () => {
     await processSchedulePhaseTransitions(runAt);
 
     const loaded = await loadRenewableSubscription(subscriptionId);
@@ -1354,17 +1198,8 @@ export async function closeSubscriptionCycle(
     }
 
     const creation = await createRenewalInvoiceForLoadedSubscription(loaded, runAt);
-    await finalizeInvoicesById(runAt, [creation.invoiceId]);
-    await collectInvoicesById(runAt, [creation.invoiceId]);
-
-    await releaseLease(runAt, summary, null);
     return { invoiceId: creation.invoiceId };
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown billing processor error";
-    await releaseLease(runAt, summary, message);
-    throw error;
-  }
+  }, runAt);
 }
 
 export async function processDueSubscriptions(
@@ -1374,7 +1209,6 @@ export async function processDueSubscriptions(
 
   const runAt = options.runAt ?? new Date();
   const trigger = options.trigger ?? "manual";
-  const finalizationDelayMs = options.finalizationDelayMs ?? 0;
 
   await acquireLease(runAt, trigger);
 
@@ -1387,16 +1221,7 @@ export async function processDueSubscriptions(
     summary.processed_subscriptions = creation.processedSubscriptions;
     summary.canceled_subscriptions = creation.canceledSubscriptions;
     summary.created_invoices = creation.createdInvoices;
-
-    const finalization = await finalizeEligibleDraftInvoices(
-      runAt,
-      finalizationDelayMs
-    );
-    summary.finalized_invoices = finalization.finalizedInvoices;
-
-    const collection = await collectOpenInvoices(runAt);
-    summary.paid_invoices = collection.paidInvoices;
-    summary.sent_invoices = collection.sentInvoices;
+    summary.refreshed_drafts = creation.refreshedDrafts;
 
     const overdue = await markOverdueInvoices(runAt);
     summary.past_due_invoices = overdue.pastDueInvoices;

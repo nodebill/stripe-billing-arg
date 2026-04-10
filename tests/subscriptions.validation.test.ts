@@ -111,11 +111,8 @@ test("rejects subscription list limits above 200", () => {
   assert.match(parsed.error.issues[0]?.message ?? "", /200/);
 });
 
-test("requires at least one filter for bulk cycle close", () => {
+test("bulk cycle close accepts empty filters to refresh all active subscriptions", () => {
   const parsed = bulkCloseSubscriptionCyclesSchema.safeParse({});
 
-  assert.equal(parsed.success, false);
-  if (parsed.success) return;
-
-  assert.match(parsed.error.issues[0]?.message ?? "", /at least one filter/i);
+  assert.equal(parsed.success, true);
 });

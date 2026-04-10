@@ -81,6 +81,7 @@ async function toInvoiceSummary(
     customer: row.customerId,
     subscription: row.subscriptionId,
     status: row.status,
+    payment_status: row.paymentStatus,
     collection_method: row.collectionMethod,
     currency: row.currency,
     subtotal: row.subtotal,
@@ -91,8 +92,9 @@ async function toInvoiceSummary(
     period_start: Math.floor(row.periodStart.getTime() / 1000),
     period_end: Math.floor(row.periodEnd.getTime() / 1000),
     auto_advance: row.autoAdvance,
-    finalized_at: toUnix(row.finalizedAt),
+    invoiced_at: toUnix(row.invoicedAt),
     paid_at: toUnix(row.paidAt),
+    legal_document: row.legalDocument ?? null,
     latest_delivery: await getLatestDelivery(row.id),
     created: Math.floor(row.createdAt.getTime() / 1000),
     updated: Math.floor(row.updatedAt.getTime() / 1000),
@@ -133,6 +135,10 @@ export async function listInvoices(
 
   if (params.customer) {
     conditions.push(eq(invoices.customerId, params.customer));
+  }
+
+  if (params.status) {
+    conditions.push(eq(invoices.status, params.status));
   }
 
   if (params.starting_after) {

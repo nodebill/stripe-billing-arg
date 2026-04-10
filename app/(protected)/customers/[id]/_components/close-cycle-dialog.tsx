@@ -58,8 +58,8 @@ export function CloseCycleDialog({
           <DialogTitle>Close current cycle</DialogTitle>
           <DialogDescription className="break-words">
             Process exactly one overdue cycle for {subscription.id}. This will
-            create the renewal invoice, finalize it, and collect or send it using
-            the subscription collection method.
+            create or refresh the renewal draft so it can be reviewed and issued
+            later from the global invoices queue.
           </DialogDescription>
         </DialogHeader>
 
@@ -84,7 +84,7 @@ export function CloseCycleDialog({
 
         <DialogFooter>
           <Button size="sm" disabled={loading} onClick={handleSubmit}>
-            {loading ? "Closing..." : "Close cycle"}
+            {loading ? "Refreshing..." : "Refresh draft"}
           </Button>
         </DialogFooter>
       </DialogContent>

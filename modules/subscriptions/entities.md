@@ -40,14 +40,14 @@
 - A customer can have at most one active or `past_due` subscription for a given meter.
 - `charge_automatically` subscriptions require one attached payment method at creation time.
 - `send_invoice` subscriptions do not require a payment method.
-- Licensed subscriptions can create an immediate proration invoice at creation time when the initial period is anchored or backdated and `proration_behavior=create_prorations`.
+- Licensed subscriptions can create an immediate draft proration invoice at creation time when the initial period is anchored or backdated and `proration_behavior=create_prorations`.
 - A subscription can also have one active or pending subscription schedule that changes the effective renewal price over time without creating intermediate invoices.
 - Reads never advance billing state; renewal processing is handled by the background billing processor.
-- When a due subscription renews, the billing processor creates a draft invoice first, then finalizes and collects it in a later stage.
+- When a due subscription renews, the billing processor creates or refreshes a draft invoice and waits for manual legal issue.
 - The billing processor applies any due schedule phase transition before building the renewal invoice.
 - Metered renewals bill the usage recorded during the period that just ended while still advancing the subscription into the next billing period.
-- Manual cycle close processes exactly one overdue cycle for one subscription and uses the same billing pipeline as the automatic processor.
+- Manual cycle close processes exactly one overdue cycle for one subscription and uses the same draft-building pipeline as the automatic processor.
 - Global subscription listing and filtered bulk manual close do not change the subscription entity shape.
-- Once a manual catch-up subscription advances to a `current_period_end` in the future, it returns to `renewal_mode=automatic`.
+- Once a manual catch-up subscription is issued into a `current_period_end` in the future, it returns to `renewal_mode=automatic`.
 - Subscriptions scheduled for period-end cancellation are finalized as canceled by the billing processor once the current period ends.
-- `send_invoice` subscriptions become `past_due` when an open renewal invoice passes its due date unpaid.
+- `send_invoice` subscriptions become `past_due` when a sent renewal invoice passes its due date unpaid.

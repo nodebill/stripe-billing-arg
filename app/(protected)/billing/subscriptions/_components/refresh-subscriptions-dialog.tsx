@@ -79,8 +79,8 @@ export function RefreshSubscriptionsDialog({
           <DialogTitle>Refresh subscriptions</DialogTitle>
           <DialogDescription>
             {hasFilters
-              ? "This will close exactly one overdue billing cycle for each active subscription that matches the current filters."
-              : "No exact filters are applied. This will close exactly one overdue billing cycle for every active subscription."}
+              ? "This will create or refresh exactly one draft invoice for each overdue active subscription that matches the current filters."
+              : "No exact filters are applied. This will create or refresh exactly one draft invoice for every overdue active subscription."}
           </DialogDescription>
         </DialogHeader>
 
