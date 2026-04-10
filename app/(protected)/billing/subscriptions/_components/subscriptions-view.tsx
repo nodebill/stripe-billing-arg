@@ -32,7 +32,7 @@ import { RefreshSubscriptionsDialog } from "./refresh-subscriptions-dialog";
 
 const PAGE_LIMIT = 200;
 const SELECT_CLASS_NAME =
-  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-8 w-full rounded-lg border border-input bg-white px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
 const STATUS_OPTIONS: Array<{
   value: Subscription["status"];
   label: string;
@@ -312,24 +312,30 @@ export function SubscriptionsView() {
 
       <div className="flex flex-col gap-3 rounded-xl border p-4">
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_160px_160px_auto]">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Filter by customer_id"
-              value={customerFilter}
-              onChange={(event) => setCustomerFilter(event.target.value)}
-              className="pl-8"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Filter by subscription_id"
-              value={subscriptionFilter}
-              onChange={(event) => setSubscriptionFilter(event.target.value)}
-              className="pl-8"
-            />
-          </div>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Filter by customer</span>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="customer_id"
+                value={customerFilter}
+                onChange={(event) => setCustomerFilter(event.target.value)}
+                className="pl-8"
+              />
+            </div>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Filter by subscription</span>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="subscription_id"
+                value={subscriptionFilter}
+                onChange={(event) => setSubscriptionFilter(event.target.value)}
+                className="pl-8"
+              />
+            </div>
+          </label>
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Status</span>
             <select
@@ -364,7 +370,7 @@ export function SubscriptionsView() {
               onChange={(event) => setDateToFilter(event.target.value)}
             />
           </label>
-          <div className="flex gap-2 self-end">
+          <div className="flex items-end gap-2">
             <Button variant="outline" onClick={clearFilters}>
               <X />
               Clear
