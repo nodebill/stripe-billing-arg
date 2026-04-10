@@ -45,8 +45,8 @@
 - As an operator, I can choose whether the initial anchored or backdated service period creates an immediate proration invoice.
 - As an operator, I can open a customer detail page and review that customer's subscriptions.
 - As an operator, I can open a customer detail page and review renewal invoices and mocked invoice deliveries for that customer.
-- As an operator, I can open a global active subscriptions screen to review subscriptions across customers, filter by exact `customer_id` or `subscription_id`, and refresh the filtered overdue cycles in one pass.
-- As an operator, I can open a global invoices screen to review generated invoices across all customers.
+- As an operator, I can open a global subscriptions screen to review subscriptions across customers, filter by status, exact `customer_id` or `subscription_id`, and a UTC `current_period_end` date range, and refresh only the filtered active overdue cycles in one pass.
+- As an operator, I can open a global invoices screen to review generated invoices across all customers and filter them by status and UTC creation date range.
 - As an operator, I can cancel a subscription immediately.
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
 - As an operator, I can schedule a temporary discount or a future price change for an existing subscription without issuing an immediate proration invoice.
@@ -59,3 +59,4 @@
 - As an operator, I can inspect the line items on an invoice so I can distinguish regular renewal charges from late metered carryforward charges.
 - As an operator, I can see when a send-invoice renewal has become past due.
 - As an operator, I cannot delete a customer while they still have active or past-due subscriptions.
+- As an operator, I can search `/customers` against the backend so customers not yet rendered on the page are found by name, email, Stripe-style ID, or `external_id`.

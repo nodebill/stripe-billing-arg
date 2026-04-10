@@ -25,6 +25,8 @@ import { EditCustomerDialog } from "./edit-customer-dialog";
 import { ImportCustomersDialog } from "./import-customers-dialog";
 import { ImportSubscriptionsDialog } from "./import-subscriptions-dialog";
 
+const SEARCH_LIMIT = 100;
+
 export function CustomersView() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -32,12 +34,17 @@ export function CustomersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [remoteMatches, setRemoteMatches] = useState<Customer[]>([]);
+  const [searchResults, setSearchResults] = useState<Customer[]>([]);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchNextPage, setSearchNextPage] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async (startingAfter?: string) => {
     const params = new URLSearchParams();
-    if (startingAfter) params.set("starting_after", startingAfter);
+    if (startingAfter) {
+      params.set("starting_after", startingAfter);
+    }
 
     try {
       setError(null);
@@ -69,48 +76,79 @@ export function CustomersView() {
     }
   }, []);
 
+  const fetchSearchResults = useCallback(
+    async ({
+      query,
+      page,
+      append = false,
+      signal,
+    }: {
+      query: string;
+      page?: string;
+      append?: boolean;
+      signal?: AbortSignal;
+    }) => {
+      const params = new URLSearchParams({
+        query,
+        limit: String(SEARCH_LIMIT),
+      });
+
+      if (page) {
+        params.set("page", page);
+      }
+
+      const res = await fetch(`/api/customers/search?${params}`, { signal });
+
+      if (!res.ok) {
+        throw new Error(`Failed to search customers (${res.status})`);
+      }
+
+      const data: StripeSearchResult<Customer> = await res.json();
+      setSearchResults((current) =>
+        append ? [...current, ...data.data] : data.data
+      );
+      setSearchHasMore(data.has_more);
+      setSearchNextPage(data.next_page);
+      setSearchError(null);
+    },
+    []
+  );
+
   useEffect(() => {
-    fetchCustomers();
+    void fetchCustomers();
   }, [fetchCustomers]);
 
   useEffect(() => {
     const trimmedSearch = search.trim();
 
     if (!trimmedSearch) {
-      setRemoteMatches([]);
+      setSearchResults([]);
+      setSearchHasMore(false);
+      setSearchNextPage(null);
+      setSearchError(null);
       setSearchLoading(false);
       return;
     }
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(async () => {
-      const escapedSearch = trimmedSearch
-        .replaceAll("\\", "\\\\")
-        .replaceAll("'", "\\'");
-
       try {
         setSearchLoading(true);
-        const params = new URLSearchParams({
-          query: `metadata['external_id']:'${escapedSearch}'`,
-          limit: "100",
-        });
-
-        const res = await fetch(`/api/customers/search?${params}`, {
+        await fetchSearchResults({
+          query: trimmedSearch,
           signal: controller.signal,
         });
-
-        if (!res.ok) {
-          throw new Error(`Failed to search customers (${res.status})`);
-        }
-
-        const data: StripeSearchResult<Customer> = await res.json();
-        setRemoteMatches(data.data);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
         }
 
-        setRemoteMatches([]);
+        setSearchResults([]);
+        setSearchHasMore(false);
+        setSearchNextPage(null);
+        setSearchError(
+          err instanceof Error ? err.message : "Failed to search customers"
+        );
       } finally {
         if (!controller.signal.aborted) {
           setSearchLoading(false);
@@ -118,47 +156,65 @@ export function CustomersView() {
       }
     }, 250);
 
-    setRemoteMatches([]);
-
     return () => {
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [search]);
+  }, [fetchSearchResults, search]);
 
-  function refresh() {
-    setLoading(true);
+  async function refresh() {
     setError(null);
-    fetchCustomers();
+
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) {
+      try {
+        setSearchLoading(true);
+        await fetchSearchResults({ query: trimmedSearch });
+      } catch (err) {
+        setSearchResults([]);
+        setSearchHasMore(false);
+        setSearchNextPage(null);
+        setSearchError(
+          err instanceof Error ? err.message : "Failed to search customers"
+        );
+      } finally {
+        setSearchLoading(false);
+      }
+      return;
+    }
+
+    setLoading(true);
+    await fetchCustomers();
   }
 
-  const normalizedSearch = search.trim().toLowerCase();
-  const filtered = normalizedSearch
-    ? customers.filter(
-        (c) =>
-          c.name?.toLowerCase().includes(normalizedSearch) ||
-          c.email?.toLowerCase().includes(normalizedSearch) ||
-          c.id.toLowerCase().includes(normalizedSearch)
-      )
-    : customers;
-  const visibleCustomers = normalizedSearch
-    ? [...filtered, ...remoteMatches]
-        .reduce<Customer[]>((unique, customer) => {
-          if (!unique.some((entry) => entry.id === customer.id)) {
-            unique.push(customer);
-          }
+  async function loadMoreSearch() {
+    const trimmedSearch = search.trim();
+    if (!trimmedSearch || !searchNextPage) {
+      return;
+    }
 
-          return unique;
-        }, [])
-        .sort(
-          (left, right) =>
-            right.created - left.created || right.id.localeCompare(left.id)
-        )
-    : customers;
+    try {
+      setSearchLoading(true);
+      await fetchSearchResults({
+        query: trimmedSearch,
+        page: searchNextPage,
+        append: true,
+      });
+    } catch (err) {
+      setSearchError(
+        err instanceof Error ? err.message : "Failed to search customers"
+      );
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  const normalizedSearch = search.trim();
+  const isSearchMode = normalizedSearch.length > 0;
+  const visibleCustomers = isSearchMode ? searchResults : customers;
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Customers{totalCount !== null && (
@@ -172,22 +228,21 @@ export function CustomersView() {
         </p>
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-sm flex-1">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search name, email, ID, or exact external ID"
+              placeholder="Search name, email, ID, or external ID"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(event) => setSearch(event.target.value)}
               className="pl-8"
             />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {searchLoading && normalizedSearch
-              ? "Searching exact external IDs..."
-              : "Search loaded customers by name, email, or ID, and remotely by exact external ID."}
+            {searchLoading && isSearchMode
+              ? "Searching customers in the backend..."
+              : "Searches the backend by name, email, customer ID, or external ID."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -197,25 +252,24 @@ export function CustomersView() {
         </div>
       </div>
 
-      {/* Content */}
-      {loading && customers.length === 0 ? (
+      {!isSearchMode && loading && customers.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-2 text-muted-foreground">
             <div className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
             <p className="text-sm">Loading customers...</p>
           </div>
         </div>
-      ) : error ? (
+      ) : !isSearchMode && error ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
           <div className="text-center">
             <p className="font-medium">Could not load customers</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
           </div>
-          <Button variant="outline" onClick={refresh}>
+          <Button variant="outline" onClick={() => void refresh()}>
             Retry
           </Button>
         </div>
-      ) : customers.length === 0 ? (
+      ) : !isSearchMode && customers.length === 0 ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Users className="size-6 text-muted-foreground" />
@@ -280,32 +334,47 @@ export function CustomersView() {
                   </TableCell>
                 </TableRow>
               ))}
-              {visibleCustomers.length === 0 && (
+              {visibleCustomers.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={5}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    {searchLoading && normalizedSearch
+                    {searchLoading && isSearchMode
                       ? "Searching customers..."
-                      : "No customers match your search."}
+                      : searchError
+                        ? searchError
+                        : "No customers match your search."}
                   </TableCell>
                 </TableRow>
-              )}
+              ) : null}
             </TableBody>
           </Table>
 
-          {!normalizedSearch && hasMore && (
+          {isSearchMode ? (
+            searchHasMore ? (
+              <div className="flex justify-center border-t px-4 py-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={searchLoading}
+                  onClick={() => void loadMoreSearch()}
+                >
+                  {searchLoading ? "Loading..." : "Load more"}
+                </Button>
+              </div>
+            ) : null
+          ) : hasMore ? (
             <div className="flex justify-center border-t px-4 py-3">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => fetchCustomers(customers[customers.length - 1].id)}
+                onClick={() => void fetchCustomers(customers[customers.length - 1].id)}
               >
                 Load more
               </Button>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

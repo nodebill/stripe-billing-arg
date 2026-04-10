@@ -8,6 +8,9 @@ Returns a paginated Stripe-style list of invoices.
 
 Query params:
 - `customer` (optional)
+- `status` (optional)
+- `date_from` (optional `YYYY-MM-DD`, inclusive UTC filter on `created_at`)
+- `date_to` (optional `YYYY-MM-DD`, inclusive UTC filter on `created_at`)
 - `limit`
 - `starting_after`
 - `ending_before`
