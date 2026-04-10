@@ -1288,7 +1288,9 @@ export async function issueInvoices(
     const result = emptyBatchResult("issue");
     const rows = await loadSelectedInvoices(invoiceIds);
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 2000));
+      const row = rows[i];
       try {
         await issueInvoiceRow(row, runAt);
         await appendProcessedResult(result, row.id);
