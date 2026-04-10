@@ -292,8 +292,8 @@ export function SubscriptionsView() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Subscriptions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Subscriptions</h1>
+          <p className="mt-1 text-base text-[#615d59]">
             Review subscriptions across customers, filter by status and UTC
             period-end date, and refresh filtered overdue active cycles.
           </p>
@@ -418,7 +418,7 @@ export function SubscriptionsView() {
           </div>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="text-center">
             <p className="font-medium">Could not load subscriptions</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -434,7 +434,7 @@ export function SubscriptionsView() {
           </Button>
         </div>
       ) : subscriptions.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Repeat className="size-6 text-muted-foreground" />
           </div>

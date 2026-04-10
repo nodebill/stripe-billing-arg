@@ -275,8 +275,8 @@ export function InvoicesView() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Invoices</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Invoices</h1>
+        <p className="mt-1 text-base text-[#615d59]">
           Review drafts, preview AFIP payloads, issue legal documents, and send
           emitted invoices from one queue.
         </p>
@@ -383,7 +383,7 @@ export function InvoicesView() {
           </div>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="text-center">
             <p className="font-medium">Could not load invoices</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -399,7 +399,7 @@ export function InvoicesView() {
           </Button>
         </div>
       ) : invoices.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <ReceiptText className="size-6 text-muted-foreground" />
           </div>

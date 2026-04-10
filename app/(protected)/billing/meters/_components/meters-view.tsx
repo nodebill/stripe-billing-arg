@@ -60,8 +60,8 @@ export function MetersView() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Meters</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Meters</h1>
+          <p className="mt-1 text-base text-[#615d59]">
             Inspect active and inactive billing meters and drill into their
             recorded usage.
           </p>
@@ -77,7 +77,7 @@ export function MetersView() {
           </div>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="text-center">
             <p className="font-medium">Could not load meters</p>
             <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -87,7 +87,7 @@ export function MetersView() {
           </Button>
         </div>
       ) : meters.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Activity className="size-6 text-muted-foreground" />
           </div>

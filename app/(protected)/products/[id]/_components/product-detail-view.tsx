@@ -142,7 +142,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
           <ArrowLeft className="size-4" />
           Back to products
         </Link>
-        <div className="rounded-xl border border-dashed px-6 py-16 text-center">
+        <div className="rounded-xl border px-6 py-16 text-center">
           <p className="font-medium">Product not found</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {error ?? "This product could not be loaded."}
@@ -173,14 +173,14 @@ export function ProductDetailView({ productId }: { productId: string }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight">
+                <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">
                   {product.name}
                 </h1>
                 <Badge variant={product.active ? "outline" : "secondary"}>
                   {product.active ? "Active" : "Inactive"}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-[#615d59]">
                 {product.description || "No product description yet."}
               </p>
             </div>
@@ -238,7 +238,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
       )}
 
       {prices.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16">
+        <div className="flex flex-col items-center gap-4 rounded-xl border py-16">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <CircleDollarSign className="size-6 text-muted-foreground" />
           </div>
@@ -342,7 +342,7 @@ export function ProductDetailView({ productId }: { productId: string }) {
       )}
 
       {!product.active && (
-        <div className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+        <div className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">
           This product is archived. Its prices remain visible for reference but
           cannot be used for new purchases.
         </div>

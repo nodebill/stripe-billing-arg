@@ -9,6 +9,8 @@ import {
   requireServerAdmin,
   revokeTeamInvite,
 } from "@/infrastructure/auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatUtcDateTime } from "@/lib/utc-format";
 
 const APP_BASE_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
@@ -140,31 +142,27 @@ export default async function TeamPage({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-10">
       <section className="space-y-4">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-sky-700">Admin</p>
-          <h1 className="text-2xl font-semibold">Team</h1>
+          <p className="text-sm uppercase tracking-[0.2em] text-primary">Admin</p>
+          <h1 className="text-[1.63rem] font-bold leading-[1.23] tracking-[-0.625px]">Team</h1>
         </div>
 
         <form action={createInviteAction} className="grid gap-3 rounded-xl border p-4 md:grid-cols-[1fr_140px_140px]">
-          <input
+          <Input
             name="email"
             type="email"
             required
             placeholder="teammate@example.com"
-            className="rounded-md border px-3 py-2"
           />
           <select name="role" defaultValue="user" className="rounded-md border px-3 py-2">
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
-          <button
-            type="submit"
-            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-          >
+          <Button type="submit">
             Create invite
-          </button>
+          </Button>
         </form>
         {inviteLink ? (
-          <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+          <p className="rounded-md border border-border bg-[#f2f9ff] px-3 py-2 text-sm text-primary">
             Share this invite link: {inviteLink}
           </p>
         ) : null}
@@ -197,37 +195,36 @@ export default async function TeamPage({
                     <option value="user">User</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                  <Button type="submit" variant="outline" size="sm">
                     Save role
-                  </button>
+                  </Button>
                 </form>
                 {member.banned ? (
                   <form action={unbanUserAction}>
                     <input type="hidden" name="userId" value={member.id} />
-                    <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                    <Button type="submit" variant="outline" size="sm">
                       Unban
-                    </button>
+                    </Button>
                   </form>
                 ) : (
                   <form action={banUserAction}>
                     <input type="hidden" name="userId" value={member.id} />
-                    <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                    <Button type="submit" variant="outline" size="sm">
                       Ban
-                    </button>
+                    </Button>
                   </form>
                 )}
                 <form action={setPasswordAction} className="flex items-center gap-2">
                   <input type="hidden" name="userId" value={member.id} />
-                  <input
+                  <Input
                     name="newPassword"
                     type="password"
                     minLength={12}
                     placeholder="Temporary password"
-                    className="rounded-md border px-3 py-2 text-sm"
                   />
-                  <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                  <Button type="submit" variant="outline" size="sm">
                     Set password
-                  </button>
+                  </Button>
                 </form>
               </div>
             </div>
@@ -252,9 +249,9 @@ export default async function TeamPage({
                   </div>
                   <form action={revokeInviteAction}>
                     <input type="hidden" name="inviteId" value={invite.id} />
-                    <button type="submit" className="rounded-md border px-3 py-2 text-sm">
+                    <Button type="submit" variant="outline" size="sm">
                       Revoke
-                    </button>
+                    </Button>
                   </form>
                 </div>
               </div>
