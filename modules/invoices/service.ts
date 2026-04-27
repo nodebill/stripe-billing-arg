@@ -179,12 +179,12 @@ export async function listInvoices(
           .select()
           .from(invoices)
           .where(and(...conditions))
-          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .orderBy(desc(invoices.amountDue), desc(invoices.createdAt), desc(invoices.id))
           .limit(limit + 1)
       : await db
           .select()
           .from(invoices)
-          .orderBy(desc(invoices.createdAt), desc(invoices.id))
+          .orderBy(desc(invoices.amountDue), desc(invoices.createdAt), desc(invoices.id))
           .limit(limit + 1);
 
   const hasMore = rows.length > limit;
