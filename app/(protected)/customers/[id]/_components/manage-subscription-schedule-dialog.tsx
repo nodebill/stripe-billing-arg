@@ -197,15 +197,15 @@ export function ManageSubscriptionScheduleDialog({
       <DialogTrigger render={<Button variant="ghost" size="icon-xs" />}>
         <CalendarClock />
       </DialogTrigger>
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>Manage price schedule</DialogTitle>
-          <DialogDescription>
-            Review the scheduled pricing phases for {subscription.id}.
+      <DialogContent size="xl" className="gap-0 overflow-hidden p-0 pr-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-5 pr-14">
+          <DialogTitle className="text-lg leading-tight">Manage price schedule</DialogTitle>
+          <DialogDescription className="leading-6">
+            Review scheduled pricing phases and replace the future portion.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid max-h-[calc(100vh-14rem)] gap-4 overflow-y-auto px-6 py-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">{statusLabel(schedule.status)}</Badge>
             <Badge variant="secondary">End: {schedule.end_behavior}</Badge>
@@ -222,11 +222,13 @@ export function ManageSubscriptionScheduleDialog({
                 key={`${phase.start_date}-${phase.end_date}-${phase.price}`}
                 className="grid gap-1 border-b px-3 py-2 text-sm last:border-b-0"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium">
+                <div className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <span className="min-w-0 truncate font-medium">
                     Phase {index + 1}: {priceLabelById.get(phase.price) ?? phase.price}
                   </span>
-                  <code className="text-xs text-muted-foreground">{phase.price}</code>
+                  <code className="min-w-0 truncate text-xs text-muted-foreground">
+                    {phase.price}
+                  </code>
                 </div>
                 <span className="text-muted-foreground">
                   {formatUtcDateTime(phase.start_date)} to{" "}
@@ -244,7 +246,7 @@ export function ManageSubscriptionScheduleDialog({
                 </Label>
                 <select
                   id={`schedule-edit-price-${schedule.id}`}
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  className="h-10 min-w-0 truncate rounded-md border bg-background px-3 text-sm"
                   value={selectedPriceId}
                   onChange={(event) => setSelectedPriceId(event.target.value)}
                   disabled={priceOptions.length === 0}
@@ -264,7 +266,7 @@ export function ManageSubscriptionScheduleDialog({
                 <Label htmlFor={`schedule-edit-mode-${schedule.id}`}>Change type</Label>
                 <select
                   id={`schedule-edit-mode-${schedule.id}`}
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm"
                   value={mode}
                   onChange={(event) =>
                     setMode(event.target.value as "permanent" | "temporary")
@@ -306,7 +308,7 @@ export function ManageSubscriptionScheduleDialog({
                 <Label htmlFor={`schedule-edit-end-${schedule.id}`}>End behavior</Label>
                 <select
                   id={`schedule-edit-end-${schedule.id}`}
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm"
                   value={endBehavior}
                   onChange={(event) =>
                     setEndBehavior(event.target.value as SubscriptionSchedule["end_behavior"])
@@ -322,15 +324,15 @@ export function ManageSubscriptionScheduleDialog({
               </p>
             </div>
           ) : null}
+
+          {error ? (
+            <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
         </div>
 
-        {error ? (
-          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none px-6 py-4">
           {isEditable ? (
             <>
               <Button
