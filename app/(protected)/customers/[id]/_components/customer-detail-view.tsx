@@ -25,6 +25,7 @@ import type { PaymentMethod } from "@/modules/payment-methods/types";
 import type { Price } from "@/modules/prices/types";
 import type { Product } from "@/modules/products/types";
 import type { StripeList } from "@/modules/shared/types";
+import type { SubscriptionSchedule } from "@/modules/subscription-schedules/types";
 import type { Subscription } from "@/modules/subscriptions/types";
 import {
   formatUtcDate,
@@ -38,6 +39,7 @@ import { CreatePaymentMethodDialog } from "./create-payment-method-dialog";
 import { CreateSubscriptionDialog } from "./create-subscription-dialog";
 import { DetachPaymentMethodDialog } from "./detach-payment-method-dialog";
 import { EditPaymentMethodDialog } from "./edit-payment-method-dialog";
+import { ManageSubscriptionScheduleDialog } from "./manage-subscription-schedule-dialog";
 import { ScheduleSubscriptionDialog } from "./schedule-subscription-dialog";
 
 function formatCollectionMethodLabel(
@@ -112,6 +114,9 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [subscriptionSchedules, setSubscriptionSchedules] = useState<
+    Record<string, SubscriptionSchedule | null>
+  >({});
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [prices, setPrices] = useState<Price[]>([]);
@@ -213,10 +218,33 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       );
 
       const priceData = priceLists.flatMap((list) => list.data);
+      const scheduleEntries = await Promise.all(
+        subscriptionsData.data.map(async (subscription) => {
+          const res = await fetch(
+            `/api/subscription_schedules?${new URLSearchParams({
+              subscription: subscription.id,
+              limit: "10",
+            })}`
+          );
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error?.message ?? "Failed to load subscription schedules");
+          }
+
+          const list = data as StripeList<SubscriptionSchedule>;
+          const activeSchedule =
+            list.data.find(
+              (schedule) =>
+                schedule.status === "active" || schedule.status === "not_started"
+            ) ?? null;
+          return [subscription.id, activeSchedule] as const;
+        })
+      );
 
       setCustomer(customerData);
       setPaymentMethods(paymentMethodsData.data);
       setSubscriptions(subscriptionsData.data);
+      setSubscriptionSchedules(Object.fromEntries(scheduleEntries));
       setInvoices(invoicesData.data);
       setProducts(productsData.data);
       setPrices(priceData);
@@ -226,6 +254,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
       setCustomer(null);
       setPaymentMethods([]);
       setSubscriptions([]);
+      setSubscriptionSchedules({});
       setInvoices([]);
       setProducts([]);
       setPrices([]);
@@ -291,6 +320,8 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         label,
         interval: price.recurring!.interval,
         usageType: price.recurring!.usage_type,
+        currency: price.currency,
+        meter: price.meter,
       };
     });
   const paymentMethodOptions = paymentMethods.map((paymentMethod) => ({
@@ -452,9 +483,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                       (option) =>
                         option.id !== price.id &&
                         option.interval === price.recurring?.interval &&
-                        option.usageType === price.recurring?.usage_type
+                        option.currency === price.currency
                     )
                   : [];
+                const activeSchedule = subscriptionSchedules[subscription.id] ?? null;
                 const canCloseCycle =
                   subscription.status !== "canceled" &&
                   !subscription.cancel_at_period_end &&
@@ -480,6 +512,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                         </Badge>
                         {subscription.cancel_at_period_end ? (
                           <Badge variant="secondary">Ends at period end</Badge>
+                        ) : null}
+                        {activeSchedule ? (
+                          <Badge variant="secondary">
+                            Schedule {activeSchedule.status === "active" ? "active" : "pending"}
+                          </Badge>
                         ) : null}
                       </div>
                     </TableCell>
@@ -512,7 +549,16 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                               onClosed={refresh}
                             />
                           ) : null}
-                          {price ? (
+                          {price && activeSchedule ? (
+                            <ManageSubscriptionScheduleDialog
+                              subscription={subscription}
+                              schedule={activeSchedule}
+                              currentPrice={price}
+                              priceOptions={schedulePriceOptions}
+                              onUpdated={refresh}
+                            />
+                          ) : null}
+                          {price && !activeSchedule ? (
                             <CreateSubscriptionScheduleDialog
                               subscription={subscription}
                               currentPrice={price}

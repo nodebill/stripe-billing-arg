@@ -32,3 +32,5 @@
 - Grouped summary requests return only buckets that contain recorded usage.
 - A meter event remains unbilled until renewal processing assigns it to an invoice line item.
 - `invoice_line_item_id` prevents duplicate billing and allows late-reported usage to be carried forward safely after the original cycle was already invoiced.
+- Meter event subscription matching is resolved from the customer, meter, and event timestamp; subscription schedule phases can make a subscription eligible for a meter even when its current price is licensed.
+- If more than one active or `past_due` subscription is eligible for the same customer, meter, and timestamp, event creation fails instead of assigning usage ambiguously.

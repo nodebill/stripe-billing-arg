@@ -566,8 +566,7 @@ function aggregateMeterValues(formula: MeterRow["defaultAggregation"], rows: Met
   return rows.reduce((total, row) => total + row.value, 0);
 }
 
-async function loadUnbilledMeterEvents(
-  meterId: string,
+async function loadUnbilledMeterEventsForCustomer(
   customerId: string,
   endExclusive: Date
 ) {
@@ -577,7 +576,6 @@ async function loadUnbilledMeterEvents(
     .from(meterEvents)
     .where(
       and(
-        eq(meterEvents.meterId, meterId),
         eq(meterEvents.customerId, customerId),
         isNull(meterEvents.invoiceLineItemId),
         lt(meterEvents.eventTimestamp, endExclusive)
@@ -602,73 +600,58 @@ function getCycleWindowForTimestamp(
   return { cycleStart, cycleEnd };
 }
 
-async function buildLicensedLineItems(
-  subscription: SubscriptionRow,
-  defaultPrice: PriceRow,
+function buildLicensedLineItem(
+  segment: PriceSegment,
   usagePeriodStart: Date,
-  usagePeriodEnd: Date,
-  invoicePeriodStart: Date,
-  invoicePeriodEnd: Date
-) {
-  const segments =
-    (await getScheduleSegments(
-      subscription.id,
-      usagePeriodStart,
-      usagePeriodEnd,
-      defaultPrice
-    )) ?? [
-      {
-        price: defaultPrice,
-        segmentStart: usagePeriodStart,
-        segmentEnd: usagePeriodEnd,
-      },
-    ];
-
+  usagePeriodEnd: Date
+): InvoiceLineItemValue {
   const totalPeriodMs = BigInt(
     usagePeriodEnd.getTime() - usagePeriodStart.getTime()
   );
+  const segmentMs = BigInt(
+    segment.segmentEnd.getTime() - segment.segmentStart.getTime()
+  );
+  const amount =
+    segment.segmentStart.getTime() === usagePeriodStart.getTime() &&
+    segment.segmentEnd.getTime() === usagePeriodEnd.getTime()
+      ? multiplyIntegerByDecimalAndRound(1, segment.price.unitAmountDecimal)
+      : multiplyDecimalByFractionAndRound(
+          segment.price.unitAmountDecimal,
+          segmentMs,
+          totalPeriodMs
+        );
 
-  return segments.map((segment) => {
-    const segmentMs = BigInt(
-      segment.segmentEnd.getTime() - segment.segmentStart.getTime()
-    );
-    const amount =
-      segments.length === 1 &&
-      segment.segmentStart.getTime() === usagePeriodStart.getTime() &&
-      segment.segmentEnd.getTime() === usagePeriodEnd.getTime()
-        ? multiplyIntegerByDecimalAndRound(1, segment.price.unitAmountDecimal)
-        : multiplyDecimalByFractionAndRound(
-            segment.price.unitAmountDecimal,
-            segmentMs,
-            totalPeriodMs
-          );
-
-    return {
-      priceId: segment.price.id,
-      billingReason: "licensed_recurring" as const,
-      quantity: 1,
-      amount,
-      currency: segment.price.currency,
-      periodStart: invoicePeriodStart,
-      periodEnd: invoicePeriodEnd,
-      meterEventIds: [],
-    };
-  });
+  return {
+    priceId: segment.price.id,
+    billingReason: "licensed_recurring",
+    quantity: 1,
+    amount,
+    currency: segment.price.currency,
+    periodStart: segment.segmentStart,
+    periodEnd: segment.segmentEnd,
+    meterEventIds: [],
+  };
 }
 
-async function buildMeteredCycleLineItems(
+async function buildSegmentedCycleLineItems(
   subscription: SubscriptionRow,
-  meter: MeterRow,
   defaultPrice: PriceRow,
   cycleStart: Date,
   cycleEnd: Date,
   billingReason: "metered_recurring" | "metered_carryforward",
   events: MeterEventRow[],
-  includeZeroLines: boolean
+  options: {
+    includeLicensed: boolean;
+    includeZeroMeteredLines: boolean;
+  }
 ) {
   const segments =
-    (await getScheduleSegments(subscription.id, cycleStart, cycleEnd, defaultPrice)) ??
-    [
+    (await getScheduleSegments(
+      subscription.id,
+      cycleStart,
+      cycleEnd,
+      defaultPrice
+    )) ?? [
       {
         price: defaultPrice,
         segmentStart: cycleStart,
@@ -679,13 +662,26 @@ async function buildMeteredCycleLineItems(
   const items: InvoiceLineItemValue[] = [];
 
   for (const segment of segments) {
+    if (!segment.price.meter) {
+      if (options.includeLicensed) {
+        items.push(buildLicensedLineItem(segment, cycleStart, cycleEnd));
+      }
+      continue;
+    }
+
+    const meter = await getMeter(segment.price.meter);
+    if (!meter) {
+      throw new Error(`No such meter: '${segment.price.meter}'`);
+    }
+
     const segmentEvents = events.filter(
       (event) =>
+        event.meterId === meter.id &&
         event.eventTimestamp.getTime() >= segment.segmentStart.getTime() &&
         event.eventTimestamp.getTime() < segment.segmentEnd.getTime()
     );
 
-    if (!includeZeroLines && segmentEvents.length === 0) {
+    if (!options.includeZeroMeteredLines && segmentEvents.length === 0) {
       continue;
     }
 
@@ -714,28 +710,9 @@ async function buildLineItems(
   subscription: SubscriptionRow,
   defaultPrice: PriceRow,
   usagePeriodStart: Date,
-  usagePeriodEnd: Date,
-  invoicePeriodStart: Date,
-  invoicePeriodEnd: Date
+  usagePeriodEnd: Date
 ): Promise<InvoiceLineItemValue[]> {
-  if (!defaultPrice.meter) {
-    return buildLicensedLineItems(
-      subscription,
-      defaultPrice,
-      usagePeriodStart,
-      usagePeriodEnd,
-      invoicePeriodStart,
-      invoicePeriodEnd
-    );
-  }
-
-  const meter = await getMeter(defaultPrice.meter);
-  if (!meter) {
-    throw new Error(`No such meter: '${defaultPrice.meter}'`);
-  }
-
-  const unbilledEvents = await loadUnbilledMeterEvents(
-    defaultPrice.meter,
+  const unbilledEvents = await loadUnbilledMeterEventsForCustomer(
     subscription.customerId,
     usagePeriodEnd
   );
@@ -782,28 +759,32 @@ async function buildLineItems(
       cycleEvents[0]!.eventTimestamp
     );
     carryforwardItems.push(
-      ...(await buildMeteredCycleLineItems(
+      ...(await buildSegmentedCycleLineItems(
         subscription,
-        meter,
         defaultPrice,
         cycleStart,
         cycleEnd,
         "metered_carryforward",
         cycleEvents,
-        false
+        {
+          includeLicensed: false,
+          includeZeroMeteredLines: false,
+        }
       ))
     );
   }
 
-  const currentCycleItems = await buildMeteredCycleLineItems(
+  const currentCycleItems = await buildSegmentedCycleLineItems(
     subscription,
-    meter,
     defaultPrice,
     usagePeriodStart,
     usagePeriodEnd,
     "metered_recurring",
     currentCycleEvents,
-    true
+    {
+      includeLicensed: true,
+      includeZeroMeteredLines: true,
+    }
   );
 
   return [...carryforwardItems, ...currentCycleItems];
@@ -840,9 +821,7 @@ async function createInvoiceWithLineItems(
     subscription,
     price,
     usagePeriodStart,
-    usagePeriodEnd,
-    nextPeriodStart,
-    nextPeriodEnd
+    usagePeriodEnd
   );
   const subtotal = lineItems.reduce((sum, lineItem) => sum + lineItem.amount, 0);
   const taxAmount = Math.round(subtotal * 0.21);

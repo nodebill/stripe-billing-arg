@@ -32,7 +32,9 @@ Rules:
 - Phases must be contiguous and ordered.
 - Every phase must end after it starts.
 - At least one phase must still end in the future.
-- Every phase price must be an active recurring price with the same currency, interval, and usage type as the subscription's current price.
+- Every phase price must be an active recurring price with the same currency and interval as the subscription's current price.
+- Phase prices may change between licensed and metered usage.
+- A metered phase cannot overlap another active or `past_due` subscription for the same customer and meter. Meter changes within the same subscription are allowed.
 
 ## `GET /api/subscription_schedules/:id`
 
@@ -46,6 +48,7 @@ Rules:
 - Only `active` and `not_started` schedules can be updated.
 - Already-started phases remain immutable.
 - The first replacement phase must start exactly when the immutable phase chain ends.
+- Updated metered phases follow the same customer/meter overlap validation as schedule creation.
 
 ## `POST /api/subscription_schedules/:id/cancel`
 

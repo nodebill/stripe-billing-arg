@@ -16,10 +16,11 @@ Request body:
 Rules:
 - `event_name` must resolve to an existing active meter in the same organization.
 - `payload.stripe_customer_id` must reference an existing customer in the same organization.
-- The customer must have exactly one active or `past_due` subscription whose recurring price points at the resolved meter.
+- The customer must have exactly one active or `past_due` subscription whose effective price at the event timestamp points at the resolved meter.
+- Effective price resolution considers subscription schedule phases, so usage can be recorded for scheduled metered windows even if the subscription's current price is licensed.
 - `payload.value` must be a positive integer.
 - `timestamp` defaults to the current Unix time when omitted.
 - `timestamp` must be within the last 35 days and no more than 5 minutes in the future.
 - If `identifier` is replayed, the endpoint returns the original event with status `200` instead of creating a duplicate.
 - If the usage lands before the current open cycle and that earlier cycle has not been invoiced yet, the event is billed on that original cycle's renewal invoice.
-- If the original cycle was already invoiced, the event remains billable and is carried forward onto the next renewal invoice as a separate line item.
+- If the original cycle was already invoiced, the event remains billable and is carried forward onto the next renewal invoice as a separate line item using the historical scheduled price segment for the event timestamp.

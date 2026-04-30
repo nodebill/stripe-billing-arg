@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "@/infrastructure/database/client";
 import {
@@ -8,6 +8,8 @@ import {
   meters,
   prices,
   subscriptionItems,
+  subscriptionSchedulePhases,
+  subscriptionSchedules,
   subscriptions,
 } from "@/infrastructure/database/schema";
 import type { SubscriptionStatus } from "@/modules/subscriptions/types";
@@ -168,10 +170,112 @@ async function loadMeterEvents(
     );
 }
 
+async function loadCurrentPriceForSubscription(subscriptionId: string) {
+  const db = getDb();
+  const itemRows = await db
+    .select()
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.subscriptionId, subscriptionId))
+    .limit(1);
+
+  const item = itemRows[0];
+  if (!item) {
+    return null;
+  }
+
+  const priceRows = await db
+    .select()
+    .from(prices)
+    .where(eq(prices.id, item.priceId))
+    .limit(1);
+
+  return priceRows[0] ?? null;
+}
+
+async function resolvePriceForSubscriptionAt(
+  subscriptionId: string,
+  eventTimestamp: Date
+) {
+  const db = getDb();
+  const scheduleRows = await db
+    .select()
+    .from(subscriptionSchedules)
+    .where(eq(subscriptionSchedules.subscriptionId, subscriptionId));
+
+  if (scheduleRows.length > 0) {
+    const scheduleMap = new Map(scheduleRows.map((row) => [row.id, row]));
+    const phaseRows = await db
+      .select()
+      .from(subscriptionSchedulePhases)
+      .where(inArray(subscriptionSchedulePhases.scheduleId, scheduleRows.map((row) => row.id)))
+      .orderBy(
+        asc(subscriptionSchedulePhases.startDate),
+        asc(subscriptionSchedulePhases.orderIndex)
+      );
+
+    const activePhase = phaseRows
+      .filter((phase) => {
+        const schedule = scheduleMap.get(phase.scheduleId);
+        if (!schedule) {
+          return false;
+        }
+
+        const terminalAt =
+          schedule.canceledAt ?? schedule.releasedAt ?? schedule.completedAt ?? null;
+        const effectiveEnd = terminalAt
+          ? new Date(Math.min(phase.endDate.getTime(), terminalAt.getTime()))
+          : phase.endDate;
+
+        return (
+          phase.startDate.getTime() <= eventTimestamp.getTime() &&
+          effectiveEnd.getTime() > eventTimestamp.getTime()
+        );
+      })
+      .sort(
+        (left, right) =>
+          right.startDate.getTime() - left.startDate.getTime() ||
+          right.orderIndex - left.orderIndex
+      )[0];
+
+    if (activePhase) {
+      const priceRows = await db
+        .select()
+        .from(prices)
+        .where(eq(prices.id, activePhase.priceId))
+        .limit(1);
+      return priceRows[0] ?? null;
+    }
+
+    const earliestUpcomingPhase = phaseRows
+      .filter((phase) => phase.startDate.getTime() > eventTimestamp.getTime())
+      .sort(
+        (left, right) =>
+          left.startDate.getTime() - right.startDate.getTime() ||
+          left.orderIndex - right.orderIndex
+      )[0];
+
+    if (earliestUpcomingPhase) {
+      const baselinePriceId =
+        scheduleMap.get(earliestUpcomingPhase.scheduleId)?.baselinePriceId ?? null;
+      if (baselinePriceId) {
+        const priceRows = await db
+          .select()
+          .from(prices)
+          .where(eq(prices.id, baselinePriceId))
+          .limit(1);
+        return priceRows[0] ?? null;
+      }
+    }
+  }
+
+  return loadCurrentPriceForSubscription(subscriptionId);
+}
+
 export async function findMeteredSubscriptionsForCustomer(
   customerId: string,
   meterId: string,
-  statuses: SubscriptionStatus[] = ["active", "past_due"]
+  statuses: SubscriptionStatus[] = ["active", "past_due"],
+  eventTimestamp = new Date()
 ): Promise<MatchedMeteredSubscription[]> {
   await ensureTables();
   const db = getDb();
@@ -189,24 +293,10 @@ export async function findMeteredSubscriptionsForCustomer(
   const matches: MatchedMeteredSubscription[] = [];
 
   for (const subscriptionRow of subscriptionRows) {
-    const itemRows = await db
-      .select()
-      .from(subscriptionItems)
-      .where(eq(subscriptionItems.subscriptionId, subscriptionRow.id))
-      .limit(1);
-
-    const item = itemRows[0];
-    if (!item) {
-      continue;
-    }
-
-    const priceRows = await db
-      .select()
-      .from(prices)
-      .where(eq(prices.id, item.priceId))
-      .limit(1);
-
-    const price = priceRows[0];
+    const price = await resolvePriceForSubscriptionAt(
+      subscriptionRow.id,
+      eventTimestamp
+    );
     if (!price || price.meter !== meterId) {
       continue;
     }
@@ -215,6 +305,33 @@ export async function findMeteredSubscriptionsForCustomer(
   }
 
   return matches;
+}
+
+async function assertExactlyOneMeteredSubscription(
+  customerId: string,
+  meterId: string,
+  eventTimestamp: Date
+) {
+  const matches = await findMeteredSubscriptionsForCustomer(
+    customerId,
+    meterId,
+    ["active", "past_due"],
+    eventTimestamp
+  );
+
+  if (matches.length === 0) {
+    throw new MeterEventError(
+      "invalid_request",
+      `No active subscription for customer '${customerId}' uses meter '${meterId}' at this event timestamp`
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new MeterEventError(
+      "invalid_request",
+      `Multiple active subscriptions for customer '${customerId}' use meter '${meterId}' at this event timestamp`
+    );
+  }
 }
 
 export async function createMeterEvent(
@@ -269,6 +386,13 @@ export async function createMeterEvent(
   }
 
   const createdAt = new Date();
+  const eventTimestamp = new Date(timestamp * 1000);
+  await assertExactlyOneMeteredSubscription(
+    input.payload.stripe_customer_id,
+    meter.id,
+    eventTimestamp
+  );
+
   const [row] = await db
     .insert(meterEvents)
     .values({
@@ -278,7 +402,7 @@ export async function createMeterEvent(
       identifier,
       eventName: input.event_name,
       value: input.payload.value,
-      eventTimestamp: new Date(timestamp * 1000),
+      eventTimestamp,
       livemode: false,
       createdAt,
       updatedAt: createdAt,
@@ -335,6 +459,11 @@ export async function createMeterEventBulk(
 
   const createdAt = new Date();
   const eventTimestamp = new Date(timestamp * 1000);
+  await assertExactlyOneMeteredSubscription(
+    input.payload.stripe_customer_id,
+    meter.id,
+    eventTimestamp
+  );
 
   const values = Array.from({ length: count }, () => ({
     id: `mtevt_${nanoid()}`,

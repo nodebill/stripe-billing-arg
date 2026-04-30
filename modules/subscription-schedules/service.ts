@@ -19,6 +19,14 @@ import type {
 
 type ScheduleRow = typeof subscriptionSchedules.$inferSelect;
 type PhaseRow = typeof subscriptionSchedulePhases.$inferSelect;
+type PriceRow = typeof prices.$inferSelect;
+type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+type PriceSegment = {
+  price: PriceRow;
+  segmentStart: Date;
+  segmentEnd: Date;
+};
 
 export class SubscriptionScheduleError extends Error {
   code:
@@ -99,8 +107,8 @@ function ensureScheduleStillRelevant(
 }
 
 function assertPriceCompatible(
-  phasePrice: typeof prices.$inferSelect,
-  currentPrice: typeof prices.$inferSelect
+  phasePrice: PriceRow,
+  currentPrice: PriceRow
 ) {
   if (!phasePrice.active) {
     throw new SubscriptionScheduleError(
@@ -130,13 +138,237 @@ function assertPriceCompatible(
     );
   }
 
-  const currentMeter = currentPrice.meter ?? null;
-  const phaseMeter = phasePrice.meter ?? null;
-  if (currentMeter !== phaseMeter) {
-    throw new SubscriptionScheduleError(
-      "invalid_phase_price",
-      `Price '${phasePrice.id}' must keep the same usage type as the subscription's current price`
+}
+
+function rangesOverlap(
+  leftStart: Date,
+  leftEnd: Date,
+  rightStart: Date,
+  rightEnd: Date
+) {
+  return leftStart.getTime() < rightEnd.getTime() && rightStart.getTime() < leftEnd.getTime();
+}
+
+function mergeAdjacentSegments(segments: PriceSegment[]) {
+  const merged: PriceSegment[] = [];
+
+  for (const segment of segments) {
+    if (segment.segmentStart.getTime() >= segment.segmentEnd.getTime()) {
+      continue;
+    }
+
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      previous.price.id === segment.price.id &&
+      previous.segmentEnd.getTime() === segment.segmentStart.getTime()
+    ) {
+      previous.segmentEnd = segment.segmentEnd;
+      continue;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return merged;
+}
+
+async function loadCurrentPriceForSubscription(subscriptionId: string) {
+  const db = getDb();
+  const itemRows = await db
+    .select()
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.subscriptionId, subscriptionId))
+    .limit(1);
+
+  const item = itemRows[0];
+  if (!item) {
+    return null;
+  }
+
+  const priceRows = await db
+    .select()
+    .from(prices)
+    .where(eq(prices.id, item.priceId))
+    .limit(1);
+
+  return priceRows[0] ?? null;
+}
+
+async function getScheduledSegmentsForSubscription(
+  subscriptionId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  defaultPrice: PriceRow
+) {
+  const db = getDb();
+  const scheduleRows = await db
+    .select()
+    .from(subscriptionSchedules)
+    .where(
+      and(
+        eq(subscriptionSchedules.subscriptionId, subscriptionId),
+        inArray(subscriptionSchedules.status, ["active", "not_started"])
+      )
     );
+
+  if (scheduleRows.length === 0) {
+    return [
+      {
+        price: defaultPrice,
+        segmentStart: periodStart,
+        segmentEnd: periodEnd,
+      },
+    ];
+  }
+
+  const scheduleMap = new Map(scheduleRows.map((row) => [row.id, row]));
+  const phaseRows = await db
+    .select()
+    .from(subscriptionSchedulePhases)
+    .where(inArray(subscriptionSchedulePhases.scheduleId, scheduleRows.map((row) => row.id)))
+    .orderBy(
+      asc(subscriptionSchedulePhases.startDate),
+      asc(subscriptionSchedulePhases.orderIndex)
+    );
+
+  const phasePriceIds = [...new Set(phaseRows.map((phase) => phase.priceId))];
+  const phasePriceRows =
+    phasePriceIds.length > 0
+      ? await db.select().from(prices).where(inArray(prices.id, phasePriceIds))
+      : [];
+  const phasePriceMap = new Map(phasePriceRows.map((price) => [price.id, price]));
+
+  const segments: PriceSegment[] = [];
+  let cursor = periodStart;
+  let currentPrice = defaultPrice;
+
+  for (const phase of phaseRows) {
+    const schedule = scheduleMap.get(phase.scheduleId);
+    const phasePrice = phasePriceMap.get(phase.priceId);
+    if (!schedule || !phasePrice) {
+      continue;
+    }
+
+    const phaseStart = new Date(
+      Math.max(phase.startDate.getTime(), periodStart.getTime())
+    );
+    const phaseEnd = new Date(
+      Math.min(phase.endDate.getTime(), periodEnd.getTime())
+    );
+
+    if (phaseEnd.getTime() <= cursor.getTime()) {
+      currentPrice = phasePrice;
+      continue;
+    }
+
+    if (cursor.getTime() < phaseStart.getTime()) {
+      segments.push({
+        price: currentPrice,
+        segmentStart: cursor,
+        segmentEnd: phaseStart,
+      });
+    }
+
+    const segmentStart = new Date(Math.max(cursor.getTime(), phaseStart.getTime()));
+    if (segmentStart.getTime() < phaseEnd.getTime()) {
+      segments.push({
+        price: phasePrice,
+        segmentStart,
+        segmentEnd: phaseEnd,
+      });
+      cursor = phaseEnd;
+    }
+
+    currentPrice = phasePrice;
+  }
+
+  if (cursor.getTime() < periodEnd.getTime()) {
+    segments.push({
+      price: currentPrice,
+      segmentStart: cursor,
+      segmentEnd: periodEnd,
+    });
+  }
+
+  return mergeAdjacentSegments(segments);
+}
+
+async function assertNoMeterScheduleConflicts(params: {
+  subscription: SubscriptionRow;
+  phaseValues: Array<{ priceId: string; startDate: Date; endDate: Date }>;
+  phasePriceMap: Map<string, PriceRow>;
+}) {
+  const meteredPhases: Array<{
+    priceId: string;
+    startDate: Date;
+    endDate: Date;
+    price: PriceRow;
+  }> = [];
+
+  for (const phase of params.phaseValues) {
+    const price = params.phasePriceMap.get(phase.priceId);
+    if (price?.meter) {
+      meteredPhases.push({ ...phase, price });
+    }
+  }
+
+  if (meteredPhases.length === 0) {
+    return;
+  }
+
+  const db = getDb();
+  const otherSubscriptions = await db
+    .select()
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.customerId, params.subscription.customerId),
+        inArray(subscriptions.status, ["active", "past_due"])
+      )
+    );
+
+  for (const otherSubscription of otherSubscriptions) {
+    if (otherSubscription.id === params.subscription.id) {
+      continue;
+    }
+
+    const otherCurrentPrice = await loadCurrentPriceForSubscription(otherSubscription.id);
+    if (!otherCurrentPrice) {
+      continue;
+    }
+
+    for (const phase of meteredPhases) {
+      const meterId = phase.price.meter;
+      if (!meterId) {
+        continue;
+      }
+
+      const otherSegments = await getScheduledSegmentsForSubscription(
+        otherSubscription.id,
+        phase.startDate,
+        phase.endDate,
+        otherCurrentPrice
+      );
+
+      const conflict = otherSegments.some(
+        (segment) =>
+          segment.price.meter === meterId &&
+          rangesOverlap(
+            phase.startDate,
+            phase.endDate,
+            segment.segmentStart,
+            segment.segmentEnd
+          )
+      );
+
+      if (conflict) {
+        throw new SubscriptionScheduleError(
+          "invalid_phase_price",
+          `Price '${phase.price.id}' uses meter '${meterId}', which overlaps another active subscription for this customer`
+        );
+      }
+    }
   }
 }
 
@@ -251,6 +483,12 @@ export async function createSubscriptionSchedule(
     createdAt: now,
     updatedAt: now,
   }));
+
+  await assertNoMeterScheduleConflicts({
+    subscription: sub,
+    phaseValues,
+    phasePriceMap,
+  });
 
   const currentPhaseValue = phaseValues.find(
     (p) => p.startDate.getTime() <= now.getTime() && p.endDate.getTime() > now.getTime()
@@ -387,6 +625,13 @@ export async function updateSubscriptionSchedule(
     .where(eq(subscriptionItems.subscriptionId, schedule.subscriptionId))
     .limit(1);
 
+  const subRows = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.id, schedule.subscriptionId))
+    .limit(1);
+
+  const subscription = subRows[0];
   const currentItem = itemRows[0];
   const currentPriceRows = currentItem
     ? await db
@@ -422,6 +667,14 @@ export async function updateSubscriptionSchedule(
     createdAt: now,
     updatedAt: now,
   }));
+
+  if (subscription) {
+    await assertNoMeterScheduleConflicts({
+      subscription,
+      phaseValues: newPhaseValues,
+      phasePriceMap,
+    });
+  }
 
   const currentPhaseValue = newPhaseValues.find(
     (p) =>

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nanoid } from "nanoid";
 import { ensureTables, getDb } from "../infrastructure/database/client";
 import {
   billingProcessorState,
@@ -31,7 +30,6 @@ import { createProduct } from "../modules/products/service";
 import { createSubscription } from "../modules/subscriptions/service";
 import { createCustomer } from "../modules/customers/service";
 
-const ORGANIZATION_ID = "org_meter_events";
 const runtime = globalThis as typeof globalThis & {
   __stripeBillingPGlite?: { close: () => Promise<void> };
   __stripeBillingPool?: { end: () => Promise<void> };
@@ -221,6 +219,9 @@ test("aggregates daily summaries for sum meters and total summaries for count me
 test("rejects events for unknown meters, unknown customers, missing subscriptions, and duplicated active subscriptions", async () => {
   await resetDb();
   const fixture = await createMeteredSubscriptionFixture("sum");
+  const customerWithoutSubscription = await createCustomer({
+    email: `meter-no-sub-${Date.now()}@example.com`,
+  });
 
   await assert.rejects(
     () =>
@@ -250,6 +251,19 @@ test("rejects events for unknown meters, unknown customers, missing subscription
       error.message.includes("No such customer")
   );
 
+  await assert.rejects(
+    () =>
+      createMeterEvent({
+        event_name: fixture.meter.event_name,
+        payload: {
+          stripe_customer_id: customerWithoutSubscription.id,
+          value: 1,
+        },
+      }),
+    (error: unknown) =>
+      error instanceof MeterEventError &&
+      error.message.includes("No active subscription")
+  );
 });
 
 test.after(async () => {

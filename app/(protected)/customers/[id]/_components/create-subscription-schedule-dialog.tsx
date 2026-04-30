@@ -21,6 +21,10 @@ import { formatUtcDateTime } from "@/lib/utc-format";
 type SchedulePriceOption = {
   id: string;
   label: string;
+  interval: "month" | "year";
+  usageType: "licensed" | "metered";
+  currency: string;
+  meter: string | null;
 };
 
 function toUtcDateTimeInputValue(date: Date) {
@@ -159,91 +163,95 @@ export function CreateSubscriptionScheduleDialog({
       >
         <Clock3 />
       </DialogTrigger>
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>Schedule a price change</DialogTitle>
-          <DialogDescription>
-            Create a mid-cycle price change for {subscription.id}. The final
-            phase persists after this billing period ends.
+      <DialogContent size="xl" className="gap-0 overflow-hidden p-0 pr-0 sm:max-w-2xl">
+        <DialogHeader className="border-b px-6 py-5 pr-14">
+          <DialogTitle className="text-lg leading-tight">Schedule a price change</DialogTitle>
+          <DialogDescription className="leading-6">
+            Create a mid-cycle price change. The final phase persists after this
+            billing period ends.
           </DialogDescription>
         </DialogHeader>
 
-        {triggerDisabled ? (
-          <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-            No compatible replacement prices are available for this subscription.
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            <div className="grid gap-1.5">
-              <Label htmlFor={`schedule-price-${subscription.id}`}>Replacement price</Label>
-              <select
-                id={`schedule-price-${subscription.id}`}
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={selectedPriceId}
-                onChange={(event) => setSelectedPriceId(event.target.value)}
-              >
-                {priceOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+        <div className="grid max-h-[calc(100vh-14rem)] gap-4 overflow-y-auto px-6 py-5">
+          {triggerDisabled ? (
+            <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+              No compatible replacement prices are available for this subscription.
             </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor={`schedule-mode-${subscription.id}`}>Change type</Label>
-              <select
-                id={`schedule-mode-${subscription.id}`}
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={mode}
-                onChange={(event) =>
-                  setMode(event.target.value as "permanent" | "temporary")
-                }
-              >
-                <option value="temporary">Temporary discount</option>
-                <option value="permanent">Permanent change</option>
-              </select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor={`schedule-effective-${subscription.id}`}>Effective at (UTC)</Label>
-              <Input
-                id={`schedule-effective-${subscription.id}`}
-                type="datetime-local"
-                value={effectiveAt}
-                onChange={(event) => setEffectiveAt(event.target.value)}
-              />
-            </div>
-
-            {mode === "temporary" ? (
+          ) : (
+            <>
               <div className="grid gap-1.5">
-                <Label htmlFor={`schedule-revert-${subscription.id}`}>Revert at (UTC)</Label>
+                <Label htmlFor={`schedule-price-${subscription.id}`}>Replacement price</Label>
+                <select
+                  id={`schedule-price-${subscription.id}`}
+                  className="h-10 min-w-0 truncate rounded-md border bg-background px-3 text-sm"
+                  value={selectedPriceId}
+                  onChange={(event) => setSelectedPriceId(event.target.value)}
+                >
+                  {priceOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor={`schedule-mode-${subscription.id}`}>Change type</Label>
+                <select
+                  id={`schedule-mode-${subscription.id}`}
+                  className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm"
+                  value={mode}
+                  onChange={(event) =>
+                    setMode(event.target.value as "permanent" | "temporary")
+                  }
+                >
+                  <option value="temporary">Temporary discount</option>
+                  <option value="permanent">Permanent change</option>
+                </select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor={`schedule-effective-${subscription.id}`}>
+                  Effective at (UTC)
+                </Label>
                 <Input
-                  id={`schedule-revert-${subscription.id}`}
+                  id={`schedule-effective-${subscription.id}`}
                   type="datetime-local"
-                  value={revertAt}
-                  onChange={(event) => setRevertAt(event.target.value)}
+                  value={effectiveAt}
+                  onChange={(event) => setEffectiveAt(event.target.value)}
                 />
               </div>
-            ) : null}
 
-            <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-              The schedule will release at the end of the current billing period on{" "}
-              {currentPeriodEndLabel}.
+              {mode === "temporary" ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor={`schedule-revert-${subscription.id}`}>Revert at (UTC)</Label>
+                  <Input
+                    id={`schedule-revert-${subscription.id}`}
+                    type="datetime-local"
+                    value={revertAt}
+                    onChange={(event) => setRevertAt(event.target.value)}
+                  />
+                </div>
+              ) : null}
+
+              <div className="rounded-lg bg-muted px-3 py-2 text-sm leading-6 text-muted-foreground">
+                The schedule will release at the end of the current billing period on{" "}
+                {currentPeriodEndLabel}.
+              </div>
+              <p className="text-xs text-muted-foreground">
+                All times in this form are interpreted in UTC.
+              </p>
+            </>
+          )}
+
+          {error ? (
+            <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
             </div>
-            <p className="text-xs text-muted-foreground">
-              All times in this form are interpreted in UTC.
-            </p>
-          </div>
-        )}
+          ) : null}
+        </div>
 
-        {error ? (
-          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none px-6 py-4">
           <Button size="sm" disabled={loading || triggerDisabled} onClick={handleSubmit}>
             {loading ? "Saving..." : "Create schedule"}
           </Button>
