@@ -63,9 +63,9 @@
 - Renewal invoices can contain multiple stored line items when a subscription schedule changed the effective price during the billed period.
 - Licensed renewal line items can be prorated by segment duration instead of billing the entire cycle at one flat amount.
 - Metered renewal invoices use the next subscription period for the invoice header but use the just-finished period on the line item that represents recorded usage.
-- Metered renewal invoices split usage by schedule segment boundaries when the effective metered price changes during the period.
+- Renewal invoices split by schedule segment boundaries when the effective price changes during the period, including cycles that mix licensed and metered prices.
 - Metered renewal line items multiply integer usage by the price's `unit_amount_decimal` and round once to the nearest minor unit using half-up semantics.
 - Late-reported metered usage for a period that already has an invoice is carried onto a later invoice as a separate `metered_carryforward` line item.
-- Carryforward line items keep the original service period and original effective price even though they appear on a later invoice.
+- Carryforward line items keep the original service period and original effective price even though they appear on a later invoice, including usage from a period that later changed back to licensed billing.
 - Zero-usage metered renewals still create invoices and line items with amount `0`.
 - Global invoice listing does not change the invoice entity shape.

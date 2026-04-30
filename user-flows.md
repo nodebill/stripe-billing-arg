@@ -92,21 +92,23 @@
 11. If the operator preserves an exact historical first cycle, the subscription is created in manual catch-up mode and is excluded from the hourly renewal processor until it is current again.
 12. The subscriptions table shows each subscription's price, status, collection method, renewal mode, default payment method, current period start, and current period end.
 13. Operators can create a subscription schedule from the subscription actions in `/customers/[id]`; the UI posts to `/api/subscription_schedules` to stage temporary or future price changes without creating an immediate invoice.
-14. Operators can manually close one overdue cycle for one subscription from `/customers/[id]`; the UI posts to `POST /api/subscriptions/:id/close_cycle` and confirms that only one cycle will be processed.
-15. The invoices table shows renewal invoices, any immediate proration draft created at subscription time, workflow state, payment state, delivery state, and a detail action for stored line items.
-16. When a schedule changes price mid-cycle, the renewal invoice is stored with multiple line items so each priced segment of the cycle remains visible.
-17. A background processor runs on `/api/internal/billing/process` every hour and updates invoice and subscription state without requiring the customer detail page to be opened.
-18. When a due subscription is processed, the system creates or refreshes a draft invoice and leaves the subscription on the current cycle until the operator legally issues that invoice.
-19. After legal issue, the subscription advances into the next billing period and the invoice becomes `paid` for auto-charge or `pending` for send-invoice.
-20. After the operator sends an issued invoice, the invoice moves to `sent` and remains eligible to become `past_due` later if unpaid.
-21. Subscriptions in manual catch-up mode are skipped by the hourly processor until a manual close refreshes the next overdue draft and later issue advances them to a current period, at which point they return to automatic renewal mode.
-22. When the renewed price is metered, the invoice amount is computed from meter events recorded during the period that just ended instead of a flat quantity of `1`.
-23. If the renewed price has `unit_amount_decimal`, the renewal line item multiplies usage by that decimal amount and rounds once to the nearest minor unit.
-24. If metered usage arrives after its original period was already invoiced, the next renewal invoice stores it as a separate carryforward line item that still references the original service period and original effective price.
-25. If a sent send-invoice renewal passes its due date unpaid, the invoice payment state and subscription are marked `past_due`.
-26. The user can schedule cancellation at period end with `/api/subscriptions/:id`.
-27. The user can remove a pending period-end cancellation with `/api/subscriptions/:id`.
-28. The user can cancel a subscription immediately with `DELETE /api/subscriptions/:id`.
-29. The user can detach an attached payment method with `/api/payment_methods/:id/detach`.
-30. If the detached payment method is the default for an active or past-due auto-charge subscription, that subscription is canceled immediately.
-31. If the user deletes the customer, the backend detaches attached payment methods before deleting the customer record, but blocks deletion while any active or past-due subscriptions remain.
+14. If a subscription has an active or pending schedule, operators can open its schedule action from `/customers/[id]` to review phases, replace future phases, cancel the schedule, or release it while leaving the subscription on the current price.
+15. Scheduled price changes can move between licensed and metered prices when currency and interval stay compatible; metered options show their meter so operators can distinguish usage-based targets.
+16. Operators can manually close one overdue cycle for one subscription from `/customers/[id]`; the UI posts to `POST /api/subscriptions/:id/close_cycle` and confirms that only one cycle will be processed.
+17. The invoices table shows renewal invoices, any immediate proration draft created at subscription time, workflow state, payment state, delivery state, and a detail action for stored line items.
+18. When a schedule changes price mid-cycle, the renewal invoice is stored with multiple line items so each priced segment of the cycle remains visible.
+19. A background processor runs on `/api/internal/billing/process` every hour and updates invoice and subscription state without requiring the customer detail page to be opened.
+20. When a due subscription is processed, the system creates or refreshes a draft invoice and leaves the subscription on the current cycle until the operator legally issues that invoice.
+21. After legal issue, the subscription advances into the next billing period and the invoice becomes `paid` for auto-charge or `pending` for send-invoice.
+22. After the operator sends an issued invoice, the invoice moves to `sent` and remains eligible to become `past_due` later if unpaid.
+23. Subscriptions in manual catch-up mode are skipped by the hourly processor until a manual close refreshes the next overdue draft and later issue advances them to a current period, at which point they return to automatic renewal mode.
+24. When a segment's effective price is metered, the invoice amount is computed from meter events recorded inside that segment instead of a flat quantity of `1`.
+25. If the renewed price has `unit_amount_decimal`, the renewal line item multiplies usage by that decimal amount and rounds once to the nearest minor unit.
+26. If metered usage arrives after its original period was already invoiced, the next renewal invoice stores it as a separate carryforward line item that still references the original service period and original effective price.
+27. If a sent send-invoice renewal passes its due date unpaid, the invoice payment state and subscription are marked `past_due`.
+28. The user can schedule cancellation at period end with `/api/subscriptions/:id`.
+29. The user can remove a pending period-end cancellation with `/api/subscriptions/:id`.
+30. The user can cancel a subscription immediately with `DELETE /api/subscriptions/:id`.
+31. The user can detach an attached payment method with `/api/payment_methods/:id/detach`.
+32. If the detached payment method is the default for an active or past-due auto-charge subscription, that subscription is canceled immediately.
+33. If the user deletes the customer, the backend detaches attached payment methods before deleting the customer record, but blocks deletion while any active or past-due subscriptions remain.

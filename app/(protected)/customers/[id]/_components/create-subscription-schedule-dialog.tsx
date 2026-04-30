@@ -21,6 +21,10 @@ import { formatUtcDateTime } from "@/lib/utc-format";
 type SchedulePriceOption = {
   id: string;
   label: string;
+  interval: "month" | "year";
+  usageType: "licensed" | "metered";
+  currency: string;
+  meter: string | null;
 };
 
 function toUtcDateTimeInputValue(date: Date) {

@@ -1584,6 +1584,218 @@ test("metered renewals segment usage by price change boundaries", async () => {
   assert.equal(invoiceRows[0]?.subtotal, 1100);
 });
 
+test("schedules can change a licensed subscription to a metered price", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const meter = await createMeter({
+    display_name: `Mixed Meter ${Date.now()}`,
+    event_name: `mixed_meter_event_${Date.now()}`,
+    default_aggregation: { formula: "sum" },
+  });
+  if ("error" in meter) {
+    throw new Error(meter.error);
+  }
+  const meteredPrice = await createMeteredRecurringPriceForProduct(
+    fixture.product.id,
+    meter.id,
+    100
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id);
+  const midpoint = new Date(
+    pastStart.getTime() + (pastEnd.getTime() - pastStart.getTime()) / 2
+  );
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: meteredPrice.id,
+        start_date: Math.floor(midpoint.getTime() / 1000),
+        end_date: Math.floor(midpoint.getTime() / 1000) + 90 * 24 * 60 * 60,
+      },
+    ],
+  });
+
+  await createMeterEvent({
+    event_name: meter.event_name,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 4,
+    },
+    timestamp: Math.floor((midpoint.getTime() + 60_000) / 1000),
+  });
+
+  await processDueSubscriptions({ runAt: new Date() });
+
+  const invoiceRows = await getDb().select().from(invoices).limit(1);
+  const lineItemRows = await getDb()
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceRows[0]!.id))
+    .orderBy(invoiceLineItems.periodStart);
+
+  assert.equal(lineItemRows.length, 2);
+  assert.equal(lineItemRows[0]?.priceId, fixture.price.id);
+  assert.equal(lineItemRows[0]?.billingReason, "licensed_recurring");
+  assert.equal(lineItemRows[0]?.amount, 1250);
+  assert.equal(lineItemRows[1]?.priceId, meteredPrice.id);
+  assert.equal(lineItemRows[1]?.billingReason, "metered_recurring");
+  assert.equal(lineItemRows[1]?.quantity, 4);
+  assert.equal(lineItemRows[1]?.amount, 400);
+  assert.equal(invoiceRows[0]?.subtotal, 1650);
+});
+
+test("schedules can change a metered subscription to a licensed price", async () => {
+  await resetDb();
+  const fixture = await createMeteredFixture("sum", { unit_amount: 100 });
+  const licensedPrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    5000
+  );
+
+  const subscription = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+
+  const { pastStart, pastEnd } = await expireSubscription(subscription.id);
+  const midpoint = new Date(
+    pastStart.getTime() + (pastEnd.getTime() - pastStart.getTime()) / 2
+  );
+
+  await createSubscriptionSchedule({
+    subscription: subscription.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: licensedPrice.id,
+        start_date: Math.floor(midpoint.getTime() / 1000),
+        end_date: Math.floor(midpoint.getTime() / 1000) + 90 * 24 * 60 * 60,
+      },
+    ],
+  });
+
+  await createMeterEvent({
+    event_name: fixture.meter.event_name,
+    payload: {
+      stripe_customer_id: fixture.customer.id,
+      value: 10,
+    },
+    timestamp: Math.floor((pastStart.getTime() + 60_000) / 1000),
+  });
+
+  await processDueSubscriptions({ runAt: new Date() });
+
+  const invoiceRows = await getDb().select().from(invoices).limit(1);
+  const lineItemRows = await getDb()
+    .select()
+    .from(invoiceLineItems)
+    .where(eq(invoiceLineItems.invoiceId, invoiceRows[0]!.id))
+    .orderBy(invoiceLineItems.periodStart);
+
+  assert.equal(lineItemRows.length, 2);
+  assert.equal(lineItemRows[0]?.priceId, fixture.price.id);
+  assert.equal(lineItemRows[0]?.billingReason, "metered_recurring");
+  assert.equal(lineItemRows[0]?.quantity, 10);
+  assert.equal(lineItemRows[0]?.amount, 1000);
+  assert.equal(lineItemRows[1]?.priceId, licensedPrice.id);
+  assert.equal(lineItemRows[1]?.billingReason, "licensed_recurring");
+  assert.equal(lineItemRows[1]?.amount, 2500);
+  assert.equal(invoiceRows[0]?.subtotal, 3500);
+});
+
+test("metered schedule conflicts only reject overlapping windows on different subscriptions", async () => {
+  await resetDb();
+  const fixture = await createRecurringFixture();
+  const meter = await createMeter({
+    display_name: `Conflict Meter ${Date.now()}`,
+    event_name: `conflict_meter_event_${Date.now()}`,
+    default_aggregation: { formula: "sum" },
+  });
+  if ("error" in meter) {
+    throw new Error(meter.error);
+  }
+  const meteredPrice = await createMeteredRecurringPriceForProduct(
+    fixture.product.id,
+    meter.id,
+    100
+  );
+  const secondLicensedPrice = await createRecurringPriceForProduct(
+    fixture.product.id,
+    3000
+  );
+
+  const first = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: fixture.price.id }],
+  });
+  const second = await createSubscription({
+    customer: fixture.customer.id,
+    collection_method: "send_invoice",
+    items: [{ price: secondLicensedPrice.id }],
+  });
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+  await createSubscriptionSchedule({
+    subscription: first.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: meteredPrice.id,
+        start_date: nowUnix + 60,
+        end_date: nowUnix + 3600,
+      },
+      {
+        price: fixture.price.id,
+        start_date: nowUnix + 3600,
+        end_date: nowUnix + 7200,
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () =>
+      createSubscriptionSchedule({
+        subscription: second.id,
+        end_behavior: "release",
+        phases: [
+          {
+            price: meteredPrice.id,
+            start_date: nowUnix + 120,
+            end_date: nowUnix + 7200,
+          },
+        ],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes("overlaps another active subscription")
+  );
+
+  const nonOverlapping = await createSubscriptionSchedule({
+    subscription: second.id,
+    end_behavior: "release",
+    phases: [
+      {
+        price: meteredPrice.id,
+        start_date: nowUnix + 3600,
+        end_date: nowUnix + 7200,
+      },
+    ],
+  });
+
+  assert.equal(nonOverlapping.status, "not_started");
+});
+
 test("manual cycle close bills one historical metered cycle and returns the subscription to automatic mode", async () => {
   await resetDb();
   const fixture = await createMeteredFixture("sum", { unit_amount: 1 });

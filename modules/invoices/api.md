@@ -24,7 +24,7 @@ Notes:
 Returns a single invoice.
 
 Rules:
-- Renewal invoices may contain multiple stored line items when pricing changed mid-cycle through a subscription schedule.
+- Renewal invoices may contain multiple stored line items when pricing changed mid-cycle through a subscription schedule, including schedules that mix licensed and metered prices.
 - The invoice detail response includes `line_items`.
 - Each line item includes `billing_reason` so operators can distinguish standard renewal charges from late metered carryforward.
 - The response includes `payment_status`, `invoiced_at`, and `legal_document` when the invoice has already been legally issued.

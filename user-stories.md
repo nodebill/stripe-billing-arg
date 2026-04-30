@@ -51,12 +51,13 @@
 - As an operator, I can send already-issued invoices later, after manual review, using the stored legal PDF.
 - As an operator, I can cancel a subscription immediately.
 - As an operator, I can mark a subscription to cancel at the end of the current billing period and remove that pending cancellation while the subscription is still active.
-- As an operator, I can schedule a temporary discount or a future price change for an existing subscription without issuing an immediate proration invoice.
+- As an operator, I can create, review, update, cancel, or release a scheduled price change for an existing subscription without issuing an immediate proration invoice.
+- As an operator, I can schedule a subscription price change between licensed and metered prices when the currency and billing interval stay compatible.
 - As an operator, the system processes due subscriptions in the background and creates or refreshes draft renewal invoices without legally issuing or sending them automatically.
 - As an operator, I can manually close exactly one overdue cycle for one subscription so backlog billing can be caught up in controlled steps.
 - As an operator, a metered subscription renewal bills the usage recorded during the period that just ended.
 - As an operator, a metered renewal can multiply whole-number usage by a decimal per-unit amount and round once to the nearest minor unit on the invoice line item.
-- As an operator, when a subscription price changes mid-cycle, the renewal invoice reflects each pricing segment as separate line items instead of collapsing the whole cycle into one amount.
+- As an operator, when a subscription price changes mid-cycle, the renewal invoice reflects each pricing segment as separate line items, including schedules that move between licensed and metered prices.
 - As an operator, if metered usage for an already-invoiced period arrives late, the next renewal invoice carries that usage forward as a separate line item priced according to the original usage period.
 - As an operator, I can inspect the line items on an invoice so I can distinguish regular renewal charges from late metered carryforward charges.
 - As an operator, I can see when a sent send-invoice renewal has become past due.
